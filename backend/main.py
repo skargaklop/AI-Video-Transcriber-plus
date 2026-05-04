@@ -34,13 +34,13 @@ from summarizer import Summarizer
 from transcript_formatting import format_transcript_without_timecodes
 from settings import get_credential, get_masked_settings, load_settings, save_settings
 
-# 配置日志
+# Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="AI视频转录器", version="1.0.0")
+app = FastAPI(title="AI Video Transcriber", version="1.0.0")
 
-# CORS中间件配置
+# CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -49,13 +49,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 获取项目根目录
+# Project root
 PROJECT_ROOT = Path(__file__).parent.parent
 
-# 挂载静态文件
+# Mount static files
 app.mount("/static", StaticFiles(directory=str(PROJECT_ROOT / "static")), name="static")
 
-# 创建临时目录
+# Create temp directory
 TEMP_DIR = PROJECT_ROOT / "temp"
 TEMP_DIR.mkdir(exist_ok=True)
 
