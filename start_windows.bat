@@ -66,6 +66,7 @@ if errorlevel 1 (
 REM --- Register avt CLI on PATH (asks once) ---
 set "AVT_SKIP=0"
 if exist ".avt-path-declined" set "AVT_SKIP=1"
+if exist ".venv\Scripts\avt.exe" set "AVT_SKIP=1"
 if "!AVT_SKIP!"=="0" (
   echo.
   echo  Add "avt" command to PATH for global calling? [y/n]
@@ -77,7 +78,6 @@ if "!AVT_SKIP!"=="0" (
       echo WARNING: avt CLI installation failed. You can still use "python cli.py".
     ) else (
       echo Entry point installed.
-      REM Add .venv\Scripts to user PATH so avt works from any terminal
       if "%USING_VENV%"=="1" (
         set "AVT_SCRIPTS=%CD%\.venv\Scripts"
         powershell -NoProfile -Command "if (-not ([Environment]::GetEnvironmentVariable('Path','User') -like '*!AVT_SCRIPTS!*')) { [Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path','User') + ';!AVT_SCRIPTS!', 'User'); Write-Host 'Added to user PATH.' } else { Write-Host 'Already on user PATH.' }"
