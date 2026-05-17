@@ -25,6 +25,7 @@ Transcribe videos or local audio files and generate AI summaries with explicit p
 - Local audio file upload and processing
 - Explicit provider selection for transcription
 - Optional Groq-to-local fallback
+- Dual local transcription: run Whisper + Parakeet concurrently on the same audio, then deterministically merge or AI-merge the results
 - Optional transcript time codes
 - Custom summary prompt plus summary language control
 - Summary provider model selection and reasoning selection when supported
@@ -51,6 +52,13 @@ avt transcribe --url "https://youtu.be/VIDEO_ID" --provider groq
 
 # Transcribe a local audio file
 avt transcribe --file recording.mp3 --provider groq
+
+# Dual local transcription: run Whisper + Parakeet together
+avt transcribe --url "https://youtu.be/VIDEO_ID" --dual-local
+
+# Dual local with AI merge
+avt transcribe --url "https://youtu.be/VIDEO_ID" --dual-local \
+    --merge-use-ai --merge-model gpt-4o
 
 # Summarize a completed transcription
 avt summarize --task-id "TASK_ID" --summary-language en

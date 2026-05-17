@@ -60,6 +60,25 @@ AGENT_MANIFEST = {
                     "values": ["json", "markdown", "txt"],
                     "default": "json",
                 },
+                "--dual-local": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Run Whisper + Parakeet together (requires --provider local)",
+                },
+                "--dual-whisper-model-preset": {"type": "string", "default": "base"},
+                "--dual-whisper-model-id": {"type": "string", "default": ""},
+                "--dual-parakeet-model-preset": {"type": "string", "default": ""},
+                "--dual-parakeet-model-id": {"type": "string", "default": ""},
+                "--merge-use-ai": {"type": "boolean", "default": False},
+                "--merge-base-url": {"type": "string", "description": "AI merge API base URL"},
+                "--merge-api-key": {"type": "string", "description": "AI merge API key"},
+                "--merge-model": {"type": "string", "description": "AI merge model"},
+                "--merge-prompt": {"type": "string", "description": "AI merge prompt"},
+                "--merge-reasoning-effort": {
+                    "type": "enum",
+                    "values": ["none", "minimal", "low", "medium", "high", "xhigh"],
+                    "default": "",
+                },
             },
             "output_schema": {
                 "status": "string",
@@ -138,7 +157,7 @@ AGENT_MANIFEST = {
         },
     },
     "exit_codes": {"0": "success", "1": "runtime error", "2": "invalid arguments"},
-    "env_vars": ["GROQ_API_KEY", "OPENAI_API_KEY", "OPENAI_BASE_URL"],
+    "env_vars": ["GROQ_API_KEY", "OPENAI_API_KEY", "OPENAI_BASE_URL", "MERGE_API_KEY", "MERGE_BASE_URL", "MERGE_MODEL"],
     "settings_file": "settings.json",
 }
 
@@ -286,9 +305,23 @@ async def _run_transcribe(args) -> dict:
     local_api_model = getattr(args, "local_api_model", "") or ""
     local_api_language = getattr(args, "local_api_language", "") or ""
     local_api_prompt = getattr(args, "local_api_prompt", "") or ""
+    dual_local = getattr(args, "dual_local", False)
+    dual_whisper_model_preset = getattr(args, "dual_whisper_model_preset", "base") or "base"
+    dual_whisper_model_id = getattr(args, "dual_whisper_model_id", "") or ""
+    dual_parakeet_model_preset = getattr(args, "dual_parakeet_model_preset", "") or ""
+    dual_parakeet_model_id = getattr(args, "dual_parakeet_model_id", "") or ""
+    merge_use_ai = getattr(args, "merge_use_ai", False)
+    merge_base_url = getattr(args, "merge_base_url", "") or ""
+    merge_api_key = getattr(args, "merge_api_key", "") or ""
+    merge_model = getattr(args, "merge_model", "") or ""
+    merge_prompt = getattr(args, "merge_prompt", "") or ""
+    merge_reasoning_effort = getattr(args, "merge_reasoning_effort", "") or ""
 
     if not url and not file_path:
         return {"error": "Either --url or --file is required.", "exit_code": 2}
+
+    if dual_local and provider != "local":
+        provider = "local"
 
     if provider == "groq" and not groq_api_key:
         return {
@@ -374,6 +407,17 @@ async def _run_transcribe(args) -> dict:
         source_file_path=source_file_path,
         source_file_name=source_file_name,
         source_title=source_title,
+        dual_local_transcription=dual_local,
+        dual_whisper_model_preset=dual_whisper_model_preset,
+        dual_whisper_model_id=dual_whisper_model_id,
+        dual_parakeet_model_preset=dual_parakeet_model_preset,
+        dual_parakeet_model_id=dual_parakeet_model_id,
+        merge_use_ai=merge_use_ai,
+        merge_api_key=merge_api_key,
+        merge_base_url=merge_base_url,
+        merge_model=merge_model,
+        merge_prompt=merge_prompt,
+        merge_reasoning_effort=merge_reasoning_effort,
     )
 
     task_data = backend_main.tasks.get(task_id, {})
@@ -650,6 +694,17 @@ def _add_transcribe_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--local-api-prompt", default="", help="Local API prompt (for provider=local_api)")
     p.add_argument("--output", default="", help="Write output to file path")
     p.add_argument("--format", default="json", choices=["json", "markdown", "txt"], help="Output format (default: json)")
+    p.add_argument("--dual-local", action="store_true", help="Run Whisper + Parakeet together (requires --provider local)")
+    p.add_argument("--dual-whisper-model-preset", default="base", help="Whisper model preset for dual mode (default: base)")
+    p.add_argument("--dual-whisper-model-id", default="", help="Custom Whisper model ID for dual mode")
+    p.add_argument("--dual-parakeet-model-preset", default="", help="Parakeet model preset for dual mode")
+    p.add_argument("--dual-parakeet-model-id", default="", help="Custom Parakeet model ID for dual mode")
+    p.add_argument("--merge-use-ai", action="store_true", help="Use AI to merge dual transcripts")
+    p.add_argument("--merge-base-url", default="", help="AI merge API base URL")
+    p.add_argument("--merge-api-key", default="", help="AI merge API key")
+    p.add_argument("--merge-model", default="", help="AI merge model name")
+    p.add_argument("--merge-prompt", default="", help="AI merge prompt")
+    p.add_argument("--merge-reasoning-effort", default="", choices=["", "none", "minimal", "low", "medium", "high", "xhigh"], help="AI merge reasoning effort")
 
 
 def _add_summarize_source_args(p: argparse.ArgumentParser) -> None:

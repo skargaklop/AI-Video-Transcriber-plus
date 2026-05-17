@@ -36,6 +36,11 @@ from local_transcription import (
 )
 from summarizer import Summarizer
 from transcript_formatting import format_transcript_without_timecodes
+from transcript_merge import (
+    merge_transcripts_ai,
+    merge_transcripts_deterministic,
+    resolve_merge_credentials,
+)
 from settings import get_credential, get_masked_settings, save_settings
 
 # Configure logging
@@ -579,6 +584,17 @@ async def process_video(
     local_api_model: str = Form(default=""),
     local_api_language: str = Form(default=""),
     local_api_prompt: str = Form(default=""),
+    dual_local_transcription: bool = Form(default=False),
+    dual_whisper_model_preset: str = Form(default="base"),
+    dual_whisper_model_id: str = Form(default=""),
+    dual_parakeet_model_preset: str = Form(default=""),
+    dual_parakeet_model_id: str = Form(default=""),
+    merge_use_ai: bool = Form(default=False),
+    merge_api_key: str = Form(default=""),
+    merge_base_url: str = Form(default=""),
+    merge_model: str = Form(default=""),
+    merge_prompt: str = Form(default=""),
+    merge_reasoning_effort: str = Form(default=""),
 ):
     """
     Process video URL, return transcription task ID. Summary is generated at a separate endpoint upon user confirmation.
@@ -618,6 +634,28 @@ async def process_video(
         local_api_language = ""
     if not isinstance(local_api_prompt, str):
         local_api_prompt = ""
+    if not isinstance(dual_local_transcription, bool):
+        dual_local_transcription = False
+    if not isinstance(dual_whisper_model_preset, str):
+        dual_whisper_model_preset = "base"
+    if not isinstance(dual_whisper_model_id, str):
+        dual_whisper_model_id = ""
+    if not isinstance(dual_parakeet_model_preset, str):
+        dual_parakeet_model_preset = ""
+    if not isinstance(dual_parakeet_model_id, str):
+        dual_parakeet_model_id = ""
+    if not isinstance(merge_use_ai, bool):
+        merge_use_ai = False
+    if not isinstance(merge_api_key, str):
+        merge_api_key = ""
+    if not isinstance(merge_base_url, str):
+        merge_base_url = ""
+    if not isinstance(merge_model, str):
+        merge_model = ""
+    if not isinstance(merge_prompt, str):
+        merge_prompt = ""
+    if not isinstance(merge_reasoning_effort, str):
+        merge_reasoning_effort = ""
     if not isinstance(model_id, str):
         model_id = ""
     if not isinstance(summary_language, str):
@@ -740,6 +778,20 @@ async def process_video(
                 source_file_path=source_file_path,
                 source_file_name=source_file_name,
                 source_title=source_title,
+                dual_local_transcription=dual_local_transcription,
+                dual_whisper_model_preset=dual_whisper_model_preset,
+                dual_whisper_model_id=dual_whisper_model_id,
+                dual_parakeet_model_preset=dual_parakeet_model_preset,
+                dual_parakeet_model_id=dual_parakeet_model_id,
+                merge_use_ai=merge_use_ai,
+                merge_api_key=merge_api_key,
+                merge_base_url=merge_base_url,
+                merge_model=merge_model,
+                merge_prompt=merge_prompt,
+                merge_reasoning_effort=merge_reasoning_effort,
+                summary_api_key=api_key,
+                summary_base_url=model_base_url,
+                summary_model=model_id,
             )
         )
         active_tasks[task_id] = task
@@ -781,6 +833,20 @@ async def process_video_task(
     source_file_name: str = "",
     source_title: str = "",
     skip_subtitles: bool | None = None,
+    dual_local_transcription: bool = False,
+    dual_whisper_model_preset: str = "base",
+    dual_whisper_model_id: str = "",
+    dual_parakeet_model_preset: str = "",
+    dual_parakeet_model_id: str = "",
+    merge_use_ai: bool = False,
+    merge_api_key: str = "",
+    merge_base_url: str = "",
+    merge_model: str = "",
+    merge_prompt: str = "",
+    merge_reasoning_effort: str = "",
+    summary_api_key: str = "",
+    summary_base_url: str = "",
+    summary_model: str = "",
 ):
     """Asynchronously process a transcription task."""
     try:
@@ -803,7 +869,33 @@ async def process_video_task(
         if normalized_local_backend not in {"whisper", "parakeet"}:
             raise Exception(f"Unsupported local backend: {local_backend}")
 
+        is_dual_mode = bool(dual_local_transcription)
+        if is_dual_mode:
+            if requested_provider != "local":
+                raise Exception(
+                    "Dual local transcription requires transcription_provider=local."
+                )
+            if merge_use_ai:
+                preflight_creds = resolve_merge_credentials(
+                    form_merge_api_key=merge_api_key,
+                    form_merge_base_url=merge_base_url,
+                    form_merge_model=merge_model,
+                    form_merge_prompt=merge_prompt,
+                    form_merge_reasoning_effort=merge_reasoning_effort,
+                    form_summary_api_key=summary_api_key,
+                    form_summary_base_url=summary_base_url,
+                    form_summary_model=summary_model,
+                )
+                if not preflight_creds["api_key"]:
+                    raise Exception(
+                        "AI merge was requested but no API key could be resolved. "
+                        "Provide a merge API key or a summary API key, or set "
+                        "OPENAI_API_KEY / MERGE_API_KEY."
+                    )
+
         should_try_subtitles = bool(try_subtitles_first) and not using_uploaded_file
+        if is_dual_mode:
+            should_try_subtitles = False
         if skip_subtitles is not None:
             should_try_subtitles = (not skip_subtitles) and not using_uploaded_file
 
@@ -968,6 +1060,200 @@ async def process_video_task(
                 ),
                 stage_code="saving_transcript",
             )
+        elif is_dual_mode and requested_provider == "local":
+            dual_stage_steps = _make_stage_steps(
+                "subtitle_skipped",
+                *(
+                    ["reading_uploaded_audio"]
+                    if using_uploaded_file
+                    else ["downloading_audio"]
+                ),
+                "preparing_audio",
+                "transcribing_local_audio",
+                "saving_transcript",
+                "completed",
+            )
+            await _push_task_update(
+                task_id,
+                progress=10,
+                message="Dual local transcription: preparing audio...",
+                stage_flow="dual_local",
+                stage_steps=dual_stage_steps,
+                stage_code=(
+                    "reading_uploaded_audio"
+                    if using_uploaded_file
+                    else "downloading_audio"
+                ),
+            )
+
+            audio_path = source_file_path
+            video_title = display_source_title or "unknown"
+            if not using_uploaded_file:
+                audio_path, video_title = await video_processor.download_and_convert(
+                    url, TEMP_DIR
+                )
+
+            backend_audio_files = []
+            try:
+                await _push_task_update(
+                    task_id,
+                    progress=25,
+                    message="Preparing audio for dual transcription...",
+                    stage_code="preparing_audio",
+                )
+                whisper_audio = ensure_backend_audio_file(
+                    audio_path, "whisper", TEMP_DIR
+                )
+                parakeet_audio = ensure_backend_audio_file(
+                    audio_path, "parakeet", TEMP_DIR
+                )
+                backend_audio_files = [whisper_audio, parakeet_audio]
+                if audio_path not in backend_audio_files:
+                    backend_audio_files.append(audio_path)
+
+                dual_whisper_preset = dual_whisper_model_preset or local_model_preset
+                dual_whisper_mid = dual_whisper_model_id
+                dual_parakeet_preset = dual_parakeet_model_preset
+                dual_parakeet_mid = dual_parakeet_model_id
+
+                await _push_task_update(
+                    task_id,
+                    progress=40,
+                    message="Running Whisper + Parakeet concurrently...",
+                    stage_code="transcribing_local_audio",
+                )
+
+                whisper_transcriber, whisper_resolved = await asyncio.to_thread(
+                    prepare_local_transcriber, "whisper",
+                    dual_whisper_preset, dual_whisper_mid,
+                )
+                parakeet_transcriber, parakeet_resolved = await asyncio.to_thread(
+                    prepare_local_transcriber, "parakeet",
+                    dual_parakeet_preset, dual_parakeet_mid,
+                )
+
+                dual_results = await asyncio.gather(
+                    whisper_transcriber.transcribe(
+                        whisper_audio, language=normalized_local_language.strip()
+                    ),
+                    parakeet_transcriber.transcribe(
+                        parakeet_audio, language=normalized_local_language.strip()
+                    ),
+                    return_exceptions=True,
+                )
+                backend_names = ["whisper", "parakeet"]
+                for i, result in enumerate(dual_results):
+                    if isinstance(result, Exception):
+                        raise Exception(
+                            f"{backend_names[i]} transcription failed: {result}"
+                        )
+                whisper_result, parakeet_result = dual_results
+
+                use_ai_merge = bool(merge_use_ai)
+                merge_creds = resolve_merge_credentials(
+                    form_merge_api_key=merge_api_key,
+                    form_merge_base_url=merge_base_url,
+                    form_merge_model=merge_model,
+                    form_merge_prompt=merge_prompt,
+                    form_merge_reasoning_effort=merge_reasoning_effort,
+                    form_summary_api_key=summary_api_key,
+                    form_summary_base_url=summary_base_url,
+                    form_summary_model=summary_model,
+                )
+
+                merge_strategy = "deterministic"
+                if use_ai_merge:
+                    if not merge_creds["api_key"]:
+                        logger.warning(
+                            "AI merge requested but no credentials available; falling back to deterministic merge."
+                        )
+                        warnings.append("AI merge requested but no credentials provided; used deterministic merge instead.")
+                    else:
+                        try:
+                            merge_result = await merge_transcripts_ai(
+                                whisper_result,
+                                parakeet_result,
+                                api_key=merge_creds["api_key"],
+                                base_url=merge_creds["base_url"],
+                                model=merge_creds["model"],
+                                prompt=merge_creds["prompt"],
+                                reasoning_effort=merge_creds["reasoning_effort"],
+                            )
+                            merge_strategy = "ai"
+                        except Exception as ai_err:
+                            logger.warning(
+                                "AI merge failed, falling back to deterministic: %s", ai_err
+                            )
+                            warnings.append(
+                                f"AI merge failed ({ai_err}); used deterministic merge."
+                            )
+                            merge_result = merge_transcripts_deterministic(
+                                whisper_result, parakeet_result
+                            )
+
+                if merge_strategy == "deterministic":
+                    merge_result = merge_transcripts_deterministic(
+                        whisper_result, parakeet_result
+                    )
+
+                merged_markdown = merge_result["markdown"]
+                merge_stats = merge_result.get("stats", {})
+
+                await _push_task_update(
+                    task_id,
+                    progress=88,
+                    message="Saving dual transcription files...",
+                    stage_code="saving_transcript",
+                )
+
+                short_id = task_id.replace("-", "")[:6]
+                safe_title_dual = _sanitize_title_for_filename(video_title)
+
+                whisper_sidecar = f"whisper_{safe_title_dual}_{short_id}.md"
+                parakeet_sidecar = f"parakeet_{safe_title_dual}_{short_id}.md"
+                async with aiofiles.open(
+                    TEMP_DIR / whisper_sidecar, "w", encoding="utf-8"
+                ) as f:
+                    await f.write(whisper_result.get("markdown", ""))
+                async with aiofiles.open(
+                    TEMP_DIR / parakeet_sidecar, "w", encoding="utf-8"
+                ) as f:
+                    await f.write(parakeet_result.get("markdown", ""))
+
+                raw_script = merged_markdown
+                detected_language = (
+                    whisper_result.get("language")
+                    or parakeet_result.get("language")
+                    or _extract_detected_language(merged_markdown, normalized_local_language)
+                )
+                transcript_source = "dual_local_merged"
+                transcription_provider_used = "dual_local"
+                local_backend_used = "dual"
+                local_model_used = f"whisper={whisper_resolved}+parakeet={parakeet_resolved}"
+                dual_metadata = {
+                    "whisper_model": whisper_resolved,
+                    "parakeet_model": parakeet_resolved,
+                    "whisper_language": whisper_result.get("language", ""),
+                    "parakeet_language": parakeet_result.get("language", ""),
+                    "whisper_warnings": list(whisper_result.get("warnings") or []),
+                    "parakeet_warnings": list(parakeet_result.get("warnings") or []),
+                    "merge_strategy": merge_strategy,
+                    "merge_stats": merge_stats,
+                    "whisper_sidecar": whisper_sidecar,
+                    "parakeet_sidecar": parakeet_sidecar,
+                }
+                warnings.extend(whisper_result.get("warnings") or [])
+                warnings.extend(parakeet_result.get("warnings") or [])
+            finally:
+                for candidate in set(backend_audio_files):
+                    if candidate and Path(candidate).exists():
+                        try:
+                            Path(candidate).unlink(missing_ok=True)
+                        except Exception:
+                            logger.debug(
+                                "Could not remove dual temp file: %s", candidate
+                            )
+
         elif requested_provider == "local":
             local_result = await _run_local_transcription(
                 url=url,
@@ -1360,6 +1646,11 @@ async def process_video_task(
                 else "Local transcription"
             ),
             "local_api_audio_file": f"Local API transcription ({local_model_used or local_api_model.strip()})",
+            "dual_local_merged": (
+                f"Dual local Whisper+Parakeet transcription ({local_model_used})"
+                if local_backend_used == "dual"
+                else "Dual local transcription"
+            ),
         }
         source_label = source_labels.get(transcript_source, transcript_source)
         warning_block = ""
@@ -1416,6 +1707,8 @@ async def process_video_task(
             "source_file_name": display_source_name,
             "input_source_type": "file" if using_uploaded_file else "url",
         }
+        if is_dual_mode and locals().get("dual_metadata"):
+            task_result["dual_transcription_results"] = dual_metadata
         task_result["stage_index"], task_result["stage_total"] = (
             _compute_stage_position(
                 task_result["stage_steps"],

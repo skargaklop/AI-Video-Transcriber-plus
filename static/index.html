@@ -1316,6 +1316,77 @@
             <div id="localCapabilitiesDetail" class="status-note"></div>
           </div>
 
+          <label class="span2 check-row local-setting" id="dualLocalRow">
+            <input id="dualLocalInput" type="checkbox">
+            <span data-i18n="dual_local_transcription">Run Whisper + Parakeet together</span>
+          </label>
+
+          <div class="local-setting dual-local-setting setting-hidden" id="dualWhisperModelRow">
+            <label class="s-label" for="dualWhisperModelPresetSelect" data-i18n="dual_whisper_model">Whisper Model</label>
+            <select id="dualWhisperModelPresetSelect" class="s-select"></select>
+          </div>
+
+          <div class="span2 local-setting dual-local-setting setting-hidden" id="dualWhisperCustomRow">
+            <label class="s-label" for="dualWhisperModelIdInput" data-i18n="dual_whisper_custom">Custom Whisper Model</label>
+            <input id="dualWhisperModelIdInput" class="s-input" type="text" placeholder="openai/whisper-large-v3"
+              data-i18n-placeholder="local_model_custom_placeholder" autocomplete="off">
+          </div>
+
+          <div class="local-setting dual-local-setting setting-hidden" id="dualParakeetModelRow">
+            <label class="s-label" for="dualParakeetModelPresetSelect" data-i18n="dual_parakeet_model">Parakeet Model</label>
+            <select id="dualParakeetModelPresetSelect" class="s-select"></select>
+          </div>
+
+          <div class="span2 local-setting dual-local-setting setting-hidden" id="dualParakeetCustomRow">
+            <label class="s-label" for="dualParakeetModelIdInput" data-i18n="dual_parakeet_custom">Custom Parakeet Model</label>
+            <input id="dualParakeetModelIdInput" class="s-input" type="text" placeholder="nvidia/parakeet-tdt-0.6b-v3"
+              data-i18n-placeholder="local_model_custom_placeholder" autocomplete="off">
+          </div>
+
+          <div class="span2 settings-section local-setting dual-local-setting setting-hidden" data-i18n="merge_settings">Merge Settings</div>
+
+          <label class="span2 check-row local-setting dual-local-setting setting-hidden">
+            <input id="mergeUseAiInput" type="checkbox">
+            <span data-i18n="merge_use_ai">Use AI to merge transcripts</span>
+          </label>
+
+          <div class="local-setting dual-local-setting setting-hidden">
+            <label class="s-label" for="mergeBaseUrlInput" data-i18n="merge_base_url">Merge API Base URL</label>
+            <input id="mergeBaseUrlInput" class="s-input" type="url" placeholder="https://api.openai.com/v1"
+              data-i18n-placeholder="model_base_url_placeholder" autocomplete="off">
+          </div>
+
+          <div class="local-setting dual-local-setting setting-hidden">
+            <label class="s-label" for="mergeApiKeyInput" data-i18n="merge_api_key">Merge API Key</label>
+            <input id="mergeApiKeyInput" class="s-input" type="password" placeholder="sk-..."
+              data-i18n-placeholder="api_key_placeholder" autocomplete="new-password">
+          </div>
+
+          <div class="local-setting dual-local-setting setting-hidden">
+            <label class="s-label" for="mergeModelInput" data-i18n="merge_model">Merge Model</label>
+            <input id="mergeModelInput" class="s-input" type="text" placeholder="gpt-4o"
+              autocomplete="off">
+          </div>
+
+          <div class="local-setting dual-local-setting setting-hidden">
+            <label class="s-label" for="mergePromptInput" data-i18n="merge_prompt">Merge Prompt</label>
+            <input id="mergePromptInput" class="s-input" type="text"
+              data-i18n-placeholder="merge_prompt_placeholder" autocomplete="off">
+          </div>
+
+          <div class="local-setting dual-local-setting setting-hidden">
+            <label class="s-label" data-i18n="merge_reasoning_effort">Merge Reasoning</label>
+            <select id="mergeReasoningEffortSelect" class="s-select">
+              <option value="" data-i18n="reasoning_auto">Auto</option>
+              <option value="none" data-i18n="reasoning_none">None</option>
+              <option value="minimal" data-i18n="reasoning_minimal">Minimal</option>
+              <option value="low" data-i18n="reasoning_low">Low</option>
+              <option value="medium" data-i18n="reasoning_medium">Medium</option>
+              <option value="high" data-i18n="reasoning_high">High</option>
+              <option value="xhigh" data-i18n="reasoning_xhigh">Extra high</option>
+            </select>
+          </div>
+
           <div class="span2 settings-section local-api-setting" data-i18n="local_api_transcription">Local API Transcription</div>
 
           <div class="span2 local-api-setting">

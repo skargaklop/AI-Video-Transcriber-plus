@@ -34,6 +34,17 @@ DEFAULT_SETTINGS = {
     "summary_prompt": "",
     "reasoning_effort": "",
     "summary_chunk_threshold": 15000,
+    "dual_local_transcription": False,
+    "dual_whisper_model_preset": "base",
+    "dual_whisper_model_id": "",
+    "dual_parakeet_model_preset": "",
+    "dual_parakeet_model_id": "",
+    "merge_use_ai": False,
+    "merge_api_key": "",
+    "merge_base_url": "",
+    "merge_model": "",
+    "merge_prompt": "",
+    "merge_reasoning_effort": "",
 }
 
 _write_lock = threading.Lock()
@@ -93,4 +104,5 @@ def get_masked_settings() -> dict:
     s = load_settings()
     s["groq_api_key"] = mask_credential(s.get("groq_api_key", ""))
     s["openai_api_key"] = mask_credential(s.get("openai_api_key", ""))
+    s["merge_api_key"] = mask_credential(s.get("merge_api_key", ""))
     return s

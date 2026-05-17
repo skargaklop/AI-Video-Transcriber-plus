@@ -401,6 +401,21 @@ class VideoTranscriber {
       stage_sending_local_api_audio: 'Sending audio to local API',
       stage_completed: 'Completed',
       stage_error: 'Error',
+      dual_local_transcription: 'Run Whisper + Parakeet together',
+      dual_whisper_model: 'Whisper Model',
+      dual_whisper_custom: 'Custom Whisper Model',
+      dual_parakeet_model: 'Parakeet Model',
+      dual_parakeet_custom: 'Custom Parakeet Model',
+      merge_settings: 'Merge Settings',
+      merge_use_ai: 'Use AI to merge transcripts',
+      merge_base_url: 'Merge API Base URL',
+      merge_api_key: 'Merge API Key',
+      merge_model: 'Merge Model',
+      merge_prompt: 'Merge Prompt',
+      merge_prompt_placeholder: 'Optional: tell the model how to merge',
+      merge_reasoning_effort: 'Merge Reasoning',
+      mode_dual_local: 'Dual Local',
+      stage_dual_transcribing: 'Running dual transcription',
     });
 
     Object.assign(this.i18n.ru, {
@@ -472,6 +487,21 @@ class VideoTranscriber {
       stage_sending_local_api_audio: 'Отправка аудио в локальный API',
       stage_completed: 'Завершено',
       stage_error: 'Ошибка',
+      dual_local_transcription: 'Запустить Whisper + Parakeet вместе',
+      dual_whisper_model: 'Модель Whisper',
+      dual_whisper_custom: 'Своя модель Whisper',
+      dual_parakeet_model: 'Модель Parakeet',
+      dual_parakeet_custom: 'Своя модель Parakeet',
+      merge_settings: 'Настройки слияния',
+      merge_use_ai: 'Использовать AI для слияния транскриптов',
+      merge_base_url: 'Base URL API слияния',
+      merge_api_key: 'Ключ API слияния',
+      merge_model: 'Модель слияния',
+      merge_prompt: 'Промпт слияния',
+      merge_prompt_placeholder: 'Необязательно: укажите, как слить',
+      merge_reasoning_effort: 'Рассуждение слияния',
+      mode_dual_local: 'Двойное локальное',
+      stage_dual_transcribing: 'Двойная транскрибация',
     });
 
     Object.assign(this.i18n.uk, {
@@ -543,6 +573,21 @@ class VideoTranscriber {
       stage_sending_local_api_audio: 'Надсилання аудіо в локальний API',
       stage_completed: 'Завершено',
       stage_error: 'Помилка',
+      dual_local_transcription: 'Запустити Whisper + Parakeet разом',
+      dual_whisper_model: 'Модель Whisper',
+      dual_whisper_custom: 'Власна модель Whisper',
+      dual_parakeet_model: 'Модель Parakeet',
+      dual_parakeet_custom: 'Власна модель Parakeet',
+      merge_settings: 'Налаштування злиття',
+      merge_use_ai: 'Використовувати AI для злиття транскриптів',
+      merge_base_url: 'Base URL API злиття',
+      merge_api_key: 'Ключ API злиття',
+      merge_model: 'Модель злиття',
+      merge_prompt: 'Промпт злиття',
+      merge_prompt_placeholder: 'Необовʼязково: вкажіть, як злити',
+      merge_reasoning_effort: 'Міркування злиття',
+      mode_dual_local: 'Подвійне локальне',
+      stage_dual_transcribing: 'Подвійне транскрибування',
     });
 
     Object.assign(this.i18n.zh, {
@@ -614,6 +659,21 @@ class VideoTranscriber {
       stage_sending_local_api_audio: '发送音频至本地 API',
       stage_completed: '已完成',
       stage_error: '错误',
+      dual_local_transcription: '同时运行 Whisper + Parakeet',
+      dual_whisper_model: 'Whisper 模型',
+      dual_whisper_custom: '自定义 Whisper 模型',
+      dual_parakeet_model: 'Parakeet 模型',
+      dual_parakeet_custom: '自定义 Parakeet 模型',
+      merge_settings: '合并设置',
+      merge_use_ai: '使用 AI 合并转录文本',
+      merge_base_url: '合并 API 基础 URL',
+      merge_api_key: '合并 API 密钥',
+      merge_model: '合并模型',
+      merge_prompt: '合并提示词',
+      merge_prompt_placeholder: '可选：告诉模型如何合并',
+      merge_reasoning_effort: '合并推理',
+      mode_dual_local: '双本地',
+      stage_dual_transcribing: '双重转录中',
     });
 
     this._initElements();
@@ -720,6 +780,21 @@ class VideoTranscriber {
     this.reasoningEffortSelect = document.getElementById('reasoningEffortSelect');
     this.fetchIcon = document.getElementById('fetchIcon');
     this.localCapabilities = null;
+    this.dualLocalInput = document.getElementById('dualLocalInput');
+    this.dualLocalRow = document.getElementById('dualLocalRow');
+    this.dualWhisperModelPresetSelect = document.getElementById('dualWhisperModelPresetSelect');
+    this.dualWhisperCustomRow = document.getElementById('dualWhisperCustomRow');
+    this.dualWhisperModelIdInput = document.getElementById('dualWhisperModelIdInput');
+    this.dualParakeetModelPresetSelect = document.getElementById('dualParakeetModelPresetSelect');
+    this.dualParakeetCustomRow = document.getElementById('dualParakeetCustomRow');
+    this.dualParakeetModelIdInput = document.getElementById('dualParakeetModelIdInput');
+    this.mergeUseAiInput = document.getElementById('mergeUseAiInput');
+    this.mergeBaseUrlInput = document.getElementById('mergeBaseUrlInput');
+    this.mergeApiKeyInput = document.getElementById('mergeApiKeyInput');
+    this.mergeModelInput = document.getElementById('mergeModelInput');
+    this.mergePromptInput = document.getElementById('mergePromptInput');
+    this.mergeReasoningEffortSelect = document.getElementById('mergeReasoningEffortSelect');
+    this.dualLocalSettings = Array.from(document.querySelectorAll('.dual-local-setting'));
   }
 
   /* -- Events ---------------------------------------------------- */
@@ -779,6 +854,18 @@ class VideoTranscriber {
       this._syncProviderSettings();
       this._saveSettings();
     });
+    this.dualLocalInput.addEventListener('change', () => {
+      this._syncDualSettings();
+      this._saveSettings();
+    });
+    this.dualWhisperModelPresetSelect.addEventListener('change', () => {
+      this._syncDualSettings();
+      this._saveSettings();
+    });
+    this.dualParakeetModelPresetSelect.addEventListener('change', () => {
+      this._syncDualSettings();
+      this._saveSettings();
+    });
 
     // Auto-fetch when both fields filled (debounced)
     const debouncedFetch = this._debounce(() => {
@@ -809,6 +896,17 @@ class VideoTranscriber {
       this.includeTimecodesInput,
       this.summaryFormatSel,
       this.summaryPromptInput,
+      this.dualLocalInput,
+      this.dualWhisperModelPresetSelect,
+      this.dualWhisperModelIdInput,
+      this.dualParakeetModelPresetSelect,
+      this.dualParakeetModelIdInput,
+      this.mergeUseAiInput,
+      this.mergeBaseUrlInput,
+      this.mergeApiKeyInput,
+      this.mergeModelInput,
+      this.mergePromptInput,
+      this.mergeReasoningEffortSelect,
     ].forEach(el => {
       el.addEventListener('change', () => this._saveSettings());
     });
@@ -957,6 +1055,17 @@ class VideoTranscriber {
       summaryPrompt: this.summaryPromptInput.value,
       transcriptSaveFormat: this.saveTranscriptFormatTop.value,
       summarySaveFormat: this.saveSummaryFormatTop.value,
+      dualLocal: this.dualLocalInput.checked,
+      dualWhisperModelPreset: this.dualWhisperModelPresetSelect?.value || 'base',
+      dualWhisperModelId: this.dualWhisperModelIdInput?.value || '',
+      dualParakeetModelPreset: this.dualParakeetModelPresetSelect?.value || '',
+      dualParakeetModelId: this.dualParakeetModelIdInput?.value || '',
+      mergeUseAi: this.mergeUseAiInput?.checked || false,
+      mergeBaseUrl: this.mergeBaseUrlInput?.value || '',
+      mergeApiKey: this.mergeApiKeyInput?.value || '',
+      mergeModel: this.mergeModelInput?.value || '',
+      mergePrompt: this.mergePromptInput?.value || '',
+      mergeReasoningEffort: this.mergeReasoningEffortSelect?.value || '',
     };
     try { localStorage.setItem('vt_settings', JSON.stringify(s)); } catch (_) { }
     if (!this._debouncedServerSave) {
@@ -995,6 +1104,17 @@ class VideoTranscriber {
       this.includeTimecodesInput.checked = Boolean(s.includeTimecodes);
       if (s.summaryFormat) this.summaryFormatSel.value = s.summaryFormat;
       if (s.summaryPrompt) this.summaryPromptInput.value = s.summaryPrompt;
+      if (this.dualLocalInput) this.dualLocalInput.checked = Boolean(s.dualLocal);
+      this._savedDualWhisperModelPreset = s.dualWhisperModelPreset || '';
+      if (s.dualWhisperModelId && this.dualWhisperModelIdInput) this.dualWhisperModelIdInput.value = s.dualWhisperModelId;
+      this._savedDualParakeetModelPreset = s.dualParakeetModelPreset || '';
+      if (s.dualParakeetModelId && this.dualParakeetModelIdInput) this.dualParakeetModelIdInput.value = s.dualParakeetModelId;
+      if (this.mergeUseAiInput) this.mergeUseAiInput.checked = Boolean(s.mergeUseAi);
+      if (s.mergeBaseUrl && this.mergeBaseUrlInput) this.mergeBaseUrlInput.value = s.mergeBaseUrl;
+      if (s.mergeApiKey && !s.mergeApiKey.includes('...') && this.mergeApiKeyInput) this.mergeApiKeyInput.value = s.mergeApiKey;
+      if (s.mergeModel && this.mergeModelInput) this.mergeModelInput.value = s.mergeModel;
+      if (s.mergePrompt && this.mergePromptInput) this.mergePromptInput.value = s.mergePrompt;
+      if (s.mergeReasoningEffort && this.mergeReasoningEffortSelect) this.mergeReasoningEffortSelect.value = s.mergeReasoningEffort;
       if (['md', 'txt', 'pdf'].includes(s.transcriptSaveFormat)) {
         this.saveTranscriptFormatTop.value = s.transcriptSaveFormat;
         this.saveTranscriptFormatBottom.value = s.transcriptSaveFormat;
@@ -1051,6 +1171,17 @@ class VideoTranscriber {
       if (s.local_api_language) this.localApiLanguageInput.value = s.local_api_language;
       if (s.local_api_prompt) this.localApiPromptInput.value = s.local_api_prompt;
       this.includeTimecodesInput.checked = Boolean(s.include_timecodes);
+      if (this.dualLocalInput && s.dual_local_transcription !== undefined) this.dualLocalInput.checked = Boolean(s.dual_local_transcription);
+      if (s.dual_whisper_model_preset) this._savedDualWhisperModelPreset = s.dual_whisper_model_preset;
+      if (s.dual_whisper_model_id && this.dualWhisperModelIdInput) this.dualWhisperModelIdInput.value = s.dual_whisper_model_id;
+      if (s.dual_parakeet_model_preset) this._savedDualParakeetModelPreset = s.dual_parakeet_model_preset;
+      if (s.dual_parakeet_model_id && this.dualParakeetModelIdInput) this.dualParakeetModelIdInput.value = s.dual_parakeet_model_id;
+      if (this.mergeUseAiInput && s.merge_use_ai !== undefined) this.mergeUseAiInput.checked = Boolean(s.merge_use_ai);
+      if (s.merge_base_url && this.mergeBaseUrlInput) this.mergeBaseUrlInput.value = s.merge_base_url;
+      if (s.merge_api_key && !s.merge_api_key.includes('...') && this.mergeApiKeyInput) this.mergeApiKeyInput.value = s.merge_api_key;
+      if (s.merge_model && this.mergeModelInput) this.mergeModelInput.value = s.merge_model;
+      if (s.merge_prompt && this.mergePromptInput) this.mergePromptInput.value = s.merge_prompt;
+      if (s.merge_reasoning_effort && this.mergeReasoningEffortSelect) this.mergeReasoningEffortSelect.value = s.merge_reasoning_effort;
       this._syncProviderSettings();
     } catch (_) { }
   }
@@ -1080,6 +1211,17 @@ class VideoTranscriber {
       summary_format: this.summaryFormatSel.value,
       summary_prompt: this.summaryPromptInput.value.trim(),
       reasoning_effort: this.reasoningEffortSelect.value,
+      dual_local_transcription: this.dualLocalInput?.checked || false,
+      dual_whisper_model_preset: this.dualWhisperModelPresetSelect?.value || 'base',
+      dual_whisper_model_id: this.dualWhisperModelIdInput?.value?.trim() || '',
+      dual_parakeet_model_preset: this.dualParakeetModelPresetSelect?.value || '',
+      dual_parakeet_model_id: this.dualParakeetModelIdInput?.value?.trim() || '',
+      merge_use_ai: this.mergeUseAiInput?.checked || false,
+      merge_base_url: this.mergeBaseUrlInput?.value?.trim() || '',
+      merge_api_key: this.mergeApiKeyInput?.value?.trim() || '',
+      merge_model: this.mergeModelInput?.value?.trim() || '',
+      merge_prompt: this.mergePromptInput?.value?.trim() || '',
+      merge_reasoning_effort: this.mergeReasoningEffortSelect?.value || '',
     };
     fetch(`${this.apiBase}/settings`, {
       method: 'POST',
@@ -1094,6 +1236,7 @@ class VideoTranscriber {
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       this.localCapabilities = await resp.json();
       this._populateLocalModelPresets();
+      this._populateDualModelPresets();
       this._renderLocalCapabilities();
       this._syncProviderSettings();
     } catch (e) {
@@ -1234,6 +1377,69 @@ class VideoTranscriber {
     if (this.localApiPromptInput) this.localApiPromptInput.disabled = !showLocalApi;
 
     this._renderLocalCapabilities();
+    this._syncDualSettings();
+  }
+
+  _syncDualSettings() {
+    const isLocal = (this.transcriptionProviderSelect?.value || 'groq') === 'local';
+    const isDual = Boolean(this.dualLocalInput?.checked);
+    const showDual = isLocal && isDual;
+    const showDualWhisperCustom = this.dualWhisperModelPresetSelect?.value === 'custom';
+    const showDualParakeetCustom = this.dualParakeetModelPresetSelect?.value === 'custom';
+
+    if (this.dualLocalRow) this.dualLocalRow.classList.toggle('setting-hidden', !isLocal);
+    if (this.dualLocalInput) this.dualLocalInput.disabled = !isLocal;
+    this.dualLocalSettings?.forEach(el => el.classList.toggle('setting-hidden', !showDual));
+    if (this.dualWhisperCustomRow) this.dualWhisperCustomRow.classList.toggle('setting-hidden', !showDual || !showDualWhisperCustom);
+    if (this.dualParakeetCustomRow) this.dualParakeetCustomRow.classList.toggle('setting-hidden', !showDual || !showDualParakeetCustom);
+    if (this.dualWhisperModelPresetSelect) this.dualWhisperModelPresetSelect.disabled = !showDual;
+    if (this.dualParakeetModelPresetSelect) this.dualParakeetModelPresetSelect.disabled = !showDual;
+    if (this.dualWhisperModelIdInput) this.dualWhisperModelIdInput.disabled = !showDual || !showDualWhisperCustom;
+    if (this.dualParakeetModelIdInput) this.dualParakeetModelIdInput.disabled = !showDual || !showDualParakeetCustom;
+    if (this.trySubtitlesFirstRow) {
+      const hideForDual = showDual;
+      const hideForFile = (this.inputSourceMode || 'url') === 'file';
+      this.trySubtitlesFirstRow.classList.toggle('setting-hidden', hideForDual || hideForFile);
+    }
+  }
+
+  _populateDualModelPresets() {
+    const whisperCaps = this._backendCapabilities('whisper');
+    const parakeetCaps = this._backendCapabilities('parakeet');
+    const whisperPresets = Array.isArray(whisperCaps?.presets) ? whisperCaps.presets : ['tiny', 'base', 'small', 'medium', 'large-v3'];
+    const parakeetPresets = Array.isArray(parakeetCaps?.presets) ? parakeetCaps.presets : ['nvidia/parakeet-tdt-0.6b-v3', 'nvidia/parakeet-tdt-0.6b-v2'];
+
+    if (this.dualWhisperModelPresetSelect) {
+      const current = this.dualWhisperModelPresetSelect.value || this._savedDualWhisperModelPreset || 'base';
+      this.dualWhisperModelPresetSelect.innerHTML = '';
+      whisperPresets.forEach(v => {
+        const opt = document.createElement('option');
+        opt.value = v; opt.textContent = v;
+        this.dualWhisperModelPresetSelect.appendChild(opt);
+      });
+      const customOpt = document.createElement('option');
+      customOpt.value = 'custom'; customOpt.textContent = this.t('local_model_custom_option');
+      this.dualWhisperModelPresetSelect.appendChild(customOpt);
+      const preferred = [...whisperPresets, 'custom'].includes(current) ? current : (whisperCaps?.default_preset || 'base');
+      this.dualWhisperModelPresetSelect.value = preferred;
+      this._savedDualWhisperModelPreset = '';
+    }
+
+    if (this.dualParakeetModelPresetSelect) {
+      const current = this.dualParakeetModelPresetSelect.value || this._savedDualParakeetModelPreset || '';
+      this.dualParakeetModelPresetSelect.innerHTML = '';
+      parakeetPresets.forEach(v => {
+        const opt = document.createElement('option');
+        opt.value = v; opt.textContent = v;
+        this.dualParakeetModelPresetSelect.appendChild(opt);
+      });
+      const customOpt = document.createElement('option');
+      customOpt.value = 'custom'; customOpt.textContent = this.t('local_model_custom_option');
+      this.dualParakeetModelPresetSelect.appendChild(customOpt);
+      const preferred = [...parakeetPresets, 'custom'].includes(current) ? current : (parakeetCaps?.default_preset || parakeetPresets[0] || '');
+      this.dualParakeetModelPresetSelect.value = preferred;
+      this._savedDualParakeetModelPreset = '';
+    }
   }
 
   /* -- Fetch models ---------------------------------------------- */
@@ -1380,6 +1586,29 @@ class VideoTranscriber {
       if (localApiLanguage && !['auto', 'auto-detect', 'autodetect', 'detect'].includes(localApiLanguage.toLowerCase())) fd.append('local_api_language', localApiLanguage);
       if (localApiPrompt) fd.append('local_api_prompt', localApiPrompt);
       fd.append('include_timecodes', this.includeTimecodesInput.checked ? 'true' : 'false');
+
+      const dualLocal = this.dualLocalInput?.checked || false;
+      const dualWhisperModelPreset = this.dualWhisperModelPresetSelect?.value || 'base';
+      const dualWhisperModelId = this.dualWhisperModelIdInput?.value?.trim() || '';
+      const dualParakeetModelPreset = this.dualParakeetModelPresetSelect?.value || '';
+      const dualParakeetModelId = this.dualParakeetModelIdInput?.value?.trim() || '';
+      const mergeUseAi = this.mergeUseAiInput?.checked || false;
+      const mergeApiKey = this.mergeApiKeyInput?.value?.trim() || '';
+      const mergeBaseUrl = this.mergeBaseUrlInput?.value?.trim().replace(/\/$/, '') || '';
+      const mergeModel = this.mergeModelInput?.value?.trim() || '';
+      const mergePrompt = this.mergePromptInput?.value?.trim() || '';
+      const mergeReasoningEffort = this.mergeReasoningEffortSelect?.value || '';
+      fd.append('dual_local_transcription', dualLocal ? 'true' : 'false');
+      if (dualWhisperModelPreset) fd.append('dual_whisper_model_preset', dualWhisperModelPreset);
+      if (dualWhisperModelId) fd.append('dual_whisper_model_id', dualWhisperModelId);
+      if (dualParakeetModelPreset) fd.append('dual_parakeet_model_preset', dualParakeetModelPreset);
+      if (dualParakeetModelId) fd.append('dual_parakeet_model_id', dualParakeetModelId);
+      fd.append('merge_use_ai', mergeUseAi ? 'true' : 'false');
+      if (mergeApiKey) fd.append('merge_api_key', mergeApiKey);
+      if (mergeBaseUrl) fd.append('merge_base_url', mergeBaseUrl);
+      if (mergeModel) fd.append('merge_model', mergeModel);
+      if (mergePrompt) fd.append('merge_prompt', mergePrompt);
+      if (mergeReasoningEffort) fd.append('merge_reasoning_effort', mergeReasoningEffort);
 
       const resp = await fetch(`${this.apiBase}/process-video`, { method: 'POST', body: fd });
       if (!resp.ok) {
@@ -1528,6 +1757,11 @@ class VideoTranscriber {
       this.modeBadge.className = 'mode-badge fallback';
       this.modeBadge.style.display = 'inline-block';
       if (this.progressFill) this.progressFill.classList.remove('subtitle-mode');
+    } else if (mode === 'dual_local') {
+      this.modeBadge.textContent = this.t('mode_dual_local');
+      this.modeBadge.className = 'mode-badge local';
+      this.modeBadge.style.display = 'inline-block';
+      if (this.progressFill) this.progressFill.classList.remove('subtitle-mode');
     } else if (mode === 'local_api') {
       this.modeBadge.textContent = this.t('mode_local_api');
       this.modeBadge.className = 'mode-badge local';
@@ -1571,6 +1805,7 @@ class VideoTranscriber {
     if (flow === 'subtitles') return [{ code: 'checking_subtitles' }, { code: 'saving_transcript' }, { code: 'completed' }];
     if (flow === 'local_api') return [{ code: fileMode ? 'reading_uploaded_audio' : 'downloading_audio' }, { code: 'sending_local_api_audio' }, { code: 'saving_transcript' }, { code: 'completed' }];
     if (flow === 'local') return [{ code: fileMode ? 'reading_uploaded_audio' : 'downloading_audio' }, { code: 'preparing_audio' }, { code: 'loading_local_model' }, { code: 'transcribing_local_audio' }, { code: 'saving_transcript' }, { code: 'completed' }];
+    if (flow === 'dual_local') return [{ code: 'subtitle_skipped' }, { code: fileMode ? 'reading_uploaded_audio' : 'downloading_audio' }, { code: 'preparing_audio' }, { code: 'transcribing_local_audio' }, { code: 'saving_transcript' }, { code: 'completed' }];
     if (flow === 'groq_local_fallback') return [{ code: 'resolving_groq_audio_url' }, { code: 'switching_to_local_fallback' }, { code: 'downloading_audio' }, { code: 'preparing_audio' }, { code: 'loading_local_model' }, { code: 'transcribing_local_audio' }, { code: 'saving_transcript' }, { code: 'completed' }];
     if (flow === 'groq_local_file_fallback') return [{ code: 'reading_uploaded_audio' }, { code: 'uploading_groq_audio' }, { code: 'switching_to_local_fallback' }, { code: 'preparing_audio' }, { code: 'loading_local_model' }, { code: 'transcribing_local_audio' }, { code: 'saving_transcript' }, { code: 'completed' }];
     if (flow === 'groq_file_upload') return [{ code: 'reading_uploaded_audio' }, { code: 'uploading_groq_audio' }, { code: 'saving_transcript' }, { code: 'completed' }];
@@ -1597,6 +1832,7 @@ class VideoTranscriber {
     if (flow === 'subtitles') return 'subtitle';
     if (flow === 'local_api') return 'local_api';
     if (flow === 'groq_local_fallback' || flow === 'groq_local_file_fallback' || task.used_local_fallback) return 'fallback';
+    if (flow === 'dual_local') return 'dual_local';
     if (flow === 'local') return 'local';
     if (flow === 'groq_file_upload') return 'groq';
     return 'groq';
