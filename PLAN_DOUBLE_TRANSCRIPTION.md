@@ -1,84 +1,60 @@
-# Multi-Source Transcription Expansion Plan
+# Consolidate Dual Local Into Multi-Source Transcription
 
 ## Summary
 
-Expand `PLAN_DOUBLE_TRANSCRIPTION.md` from a Whisper + Parakeet dual-mode feature into a generalized multi-source transcription feature.
+Remove the separate Dual Local transcription UI and make Whisper + Parakeet concurrency available only through Multi-Source Transcription. The user enables Multi-Source, checks `Local Whisper` and/or `Local Parakeet`, then configures each selected local source’s model inside the Multi-Source section.
 
-The user can select any non-empty combination of four transcription sources:
+Legacy backend/API support for `dual_local_transcription=true` stays for compatibility, but the UI stops exposing or saving that separate mode.
 
-- `platform`: platform-provided transcript, starting with YouTube subtitles/captions through the existing subtitle path
-- `groq`: Groq Whisper API transcription
-- `local_whisper`: local Whisper transcription
-- `local_parakeet`: local Nvidia Parakeet transcription
+## Key Changes
 
-Each selected source runs independently, with local/API model sources running concurrently after media preparation. The user then chooses one output mode:
+- **UI consolidation**
+  - Remove the `Run Whisper + Parakeet together` checkbox and the separate Dual Local block from the Local provider section.
+  - Remove the separate Dual Local merge settings block because Multi-Source already owns merge mode, primary source, raw bundle, and AI merge settings.
+  - Keep single Local provider mode simple: one backend selector, one local model preset/custom model, and language hint for normal single-source local transcription.
 
-- `system`: deterministic merge using a user-selected primary transcript
-- `raw`: no merge; return a raw bundle with per-source transcripts and an index/report
-- `ai`: merge with an OpenAI-compatible LLM endpoint
+- **Multi-Source local model controls**
+  - When `Enable multi-source transcription` is checked:
+    - show provider checkboxes.
+    - if `Local Whisper` is checked, show `Whisper Model` and optional custom Whisper model controls.
+    - if `Local Parakeet` is checked, show `Parakeet Model` and optional custom Parakeet model controls.
+  - Reuse the existing dual-local model fields internally if practical, but rename/move them conceptually under Multi-Source.
+  - Hide disabled/unselected local source model controls so the user sees only selected source configuration.
 
-## Public Interfaces
+- **Request behavior**
+  - If Multi-Source is disabled, submit no `transcription_sources`; use the selected top-level provider normally.
+  - If Multi-Source is enabled, submit `transcription_sources` from checked providers.
+  - Submit `dual_whisper_model_preset`, `dual_whisper_model_id`, `dual_parakeet_model_preset`, and `dual_parakeet_model_id` as model configuration for multi-source local sources.
+  - Always submit `dual_local_transcription=false` from the UI; backend legacy support remains but UI no longer uses it.
 
-- Add `transcription_sources` as the new canonical request setting. Accept a JSON array string such as `["platform","groq","local_whisper"]`, with CSV fallback for CLI/manual callers.
-- Add `merge_mode`: `system`, `raw`, or `ai`.
-- Add `merge_primary_source`, required when `merge_mode=system` and at least two sources succeed.
-- Keep backward compatibility:
-  - Existing single-provider requests map to one source.
-  - Existing dual-local flag maps to `["local_whisper","local_parakeet"]`.
-  - Existing merge model/API key/base URL fields continue to work for AI merge.
-- Source failures use partial-success behavior: if at least one selected source succeeds, the job completes with warnings. If all selected sources fail, the job fails.
-- If the selected system primary source fails, fall back to the first successful selected source and record a warning.
-
-## Implementation Changes
-
-- Replace the current dual-only orchestration with a source registry:
-  - `platform` calls the existing subtitle/platform transcript path and must not short-circuit other selected sources.
-  - `groq` uses the existing Groq transcription path.
-  - `local_whisper` uses the existing local Whisper path.
-  - `local_parakeet` uses the current Parakeet path.
-- Normalize every source result into the same internal shape: source id, display name, status, warnings/errors, plain text, timestamped segments, language/model metadata, and artifact filenames.
-- Generalize `transcript_merge.py` from two-input merge to N-source merge:
-  - `system` merge aligns source segments against the user-selected primary timeline.
-  - It preserves primary wording unless another source fills an empty/low-confidence span.
-  - It preserves timestamps and source provenance metadata.
-  - A single successful source bypasses merge and becomes the final transcript unless `raw` mode was selected.
-- Add raw-bundle output:
-  - Write one artifact per successful source.
-  - Write an index/report listing selected sources, completed sources, failed sources, warnings, model metadata, and file names.
-  - Set the main task transcript to the raw-bundle index/report, not a synthesized transcript.
-- Update the UI:
-  - Replace the provider/dual-local mental model with a source checkbox group.
-  - Show source-specific settings only when the matching source is enabled.
-  - Add merge mode selection: System, Raw Bundle, AI Merge.
-  - For System mode with multiple sources, require a primary-source selector.
-  - Results view should expose raw per-source transcripts even when a merged transcript is produced.
-- Update CLI:
-  - Add repeatable `--source` or equivalent CSV support.
-  - Add `--merge-mode`.
-  - Add `--merge-primary-source`.
-  - Preserve existing `--provider` and dual-local flags as compatibility aliases.
+- **Backend compatibility**
+  - Keep existing backend support for legacy `dual_local_transcription=true` so older CLI/API callers do not break.
+  - Ensure Multi-Source `["local_whisper","local_parakeet"]` uses the same model preset/custom model parameters that Dual Local used.
+  - Treat Multi-Source as the canonical path for concurrent local transcription in UI-facing behavior and tests.
 
 ## Test Plan
 
-- Unit-test source parsing: JSON array, CSV fallback, invalid source id, empty source list.
-- Test backward compatibility: old Groq/local provider requests and old dual-local flag map to the new source list.
-- Test platform + model behavior: selecting `platform` plus another source does not stop after subtitles are found.
-- Test partial success: failed platform/Groq/local source records warning and job completes if another source succeeds.
-- Test all-failed behavior: job fails with clear per-source error details.
-- Test system merge:
-  - requires primary source when multiple sources succeed;
-  - uses the selected primary timeline;
-  - falls back with warning if the primary failed;
-  - handles one-source success without unnecessary merge.
-- Test raw mode: creates per-source artifacts and raw index/report without calling deterministic or AI merge.
-- Test AI merge: sends all successful source transcripts to the OpenAI-compatible merge client and respects merge-specific credentials/fallbacks.
-- Test frontend static behavior: selected sources, merge mode, and primary source persist and submit correctly.
-- Final verification command:
-  `Set-Location -LiteralPath 'D:\Projects\AI-Video-Transcriber'; python -m pytest -q`
+- Add/adjust frontend static tests:
+  - Dual Local checkbox/block is no longer present in `static/index.html`.
+  - Multi-Source contains conditional model controls for `Local Whisper` and `Local Parakeet`.
+  - UI submit path sends `transcription_sources` for selected multi-source providers and does not send `dual_local_transcription=true`.
+  - When Multi-Source is disabled, checked/stale provider boxes are ignored.
+
+- Add/adjust backend tests:
+  - `transcription_sources=["local_whisper","local_parakeet"]` runs both local sources concurrently and respects selected Whisper/Parakeet model settings.
+  - Legacy `dual_local_transcription=true` still works for API compatibility.
+  - Stale `dual_local_transcription=true` with non-local provider remains ignored.
+
+- Run validation:
+  - `python -m pytest -q tests\test_multi_source.py`
+  - `python -m pytest -q`
+  - `python -m py_compile backend\main.py backend\settings.py backend\source_registry.py backend\transcript_merge.py cli.py`
+  - `node --check static\app.js`
+  - Browser check: enable Multi-Source, select Local Whisper + Local Parakeet, verify only Multi-Source controls appear and status cards show both sources.
 
 ## Assumptions
 
-- “Platform transcript” means the current subtitle/caption extraction path first, with YouTube as the initial supported platform and room for other platforms later.
-- The user-selected deterministic primary source is the required system-merge base.
-- Raw mode completes the task with a raw bundle and index/report, not an empty final result.
-- Partial success is the default: unavailable selected sources should not discard useful transcripts from other successful sources.
+- Multi-Source is now the only UI path for concurrent transcription.
+- Legacy Dual Local API/CLI behavior must remain backward compatible.
+- Existing Whisper/Parakeet model preset options are reused; no new model schema is introduced.
+- Multi-Source merge settings replace Dual Local merge settings completely.

@@ -391,6 +391,7 @@ class VideoTranscriber {
       stage_installing_local_backend: 'Installing local backend',
       stage_loading_local_model: 'Loading local model',
       stage_transcribing_local_audio: 'Running local transcription',
+      stage_merging_transcripts: 'Merging transcripts',
       stage_saving_transcript: 'Saving transcript',
       stage_resolving_groq_audio_url: 'Resolving Groq audio URL',
       stage_retrying_groq_audio_url: 'Refreshing Groq audio URL',
@@ -496,6 +497,7 @@ class VideoTranscriber {
       stage_installing_local_backend: 'Установка локального движка',
       stage_loading_local_model: 'Загрузка локальной модели',
       stage_transcribing_local_audio: 'Локальная транскрибация',
+      stage_merging_transcripts: 'Слияние транскриптов',
       stage_saving_transcript: 'Сохранение транскрипта',
       stage_resolving_groq_audio_url: 'Получение аудио URL для Groq',
       stage_retrying_groq_audio_url: 'Обновление аудио URL для Groq',
@@ -601,6 +603,7 @@ class VideoTranscriber {
       stage_installing_local_backend: 'Встановлення локального рушія',
       stage_loading_local_model: 'Завантаження локальної моделі',
       stage_transcribing_local_audio: 'Локальне транскрибування',
+      stage_merging_transcripts: 'Злиття транскриптів',
       stage_saving_transcript: 'Збереження транскрипту',
       stage_resolving_groq_audio_url: 'Отримання аудіо URL для Groq',
       stage_retrying_groq_audio_url: 'Оновлення аудіо URL для Groq',
@@ -706,6 +709,7 @@ class VideoTranscriber {
       stage_installing_local_backend: '安装本地引擎',
       stage_loading_local_model: '加载本地模型',
       stage_transcribing_local_audio: '本地转录中',
+      stage_merging_transcripts: '合并转录文本',
       stage_saving_transcript: '保存转录文本',
       stage_resolving_groq_audio_url: '获取 Groq 音频链接',
       stage_retrying_groq_audio_url: '刷新 Groq 音频链接',
@@ -2116,7 +2120,9 @@ class VideoTranscriber {
     if (!code) return '';
     const key = `stage_${code}`;
     const translated = this.t(key);
-    return translated && translated !== key ? translated : code.replaceAll('_', ' ');
+    if (translated && translated !== key) return translated;
+    const fallback = code.replaceAll('_', ' ');
+    return fallback ? fallback.charAt(0).toUpperCase() + fallback.slice(1) : '';
   }
 
   _defaultStageSteps(task) {
@@ -2127,6 +2133,7 @@ class VideoTranscriber {
     if (flow === 'local_api') return [{ code: fileMode ? 'reading_uploaded_audio' : 'downloading_audio' }, { code: 'sending_local_api_audio' }, { code: 'saving_transcript' }, { code: 'completed' }];
     if (flow === 'local') return [{ code: fileMode ? 'reading_uploaded_audio' : 'downloading_audio' }, { code: 'preparing_audio' }, { code: 'loading_local_model' }, { code: 'transcribing_local_audio' }, { code: 'saving_transcript' }, { code: 'completed' }];
     if (flow === 'dual_local') return [{ code: 'subtitle_skipped' }, { code: fileMode ? 'reading_uploaded_audio' : 'downloading_audio' }, { code: 'preparing_audio' }, { code: 'transcribing_local_audio' }, { code: 'saving_transcript' }, { code: 'completed' }];
+    if (flow === 'multi_source') return [{ code: 'subtitle_skipped' }, { code: fileMode ? 'reading_uploaded_audio' : 'downloading_audio' }, { code: 'preparing_audio' }, { code: 'transcribing_local_audio' }, { code: 'merging_transcripts' }, { code: 'saving_transcript' }, { code: 'completed' }];
     if (flow === 'groq_local_fallback') return [{ code: 'resolving_groq_audio_url' }, { code: 'switching_to_local_fallback' }, { code: 'downloading_audio' }, { code: 'preparing_audio' }, { code: 'loading_local_model' }, { code: 'transcribing_local_audio' }, { code: 'saving_transcript' }, { code: 'completed' }];
     if (flow === 'groq_local_file_fallback') return [{ code: 'reading_uploaded_audio' }, { code: 'uploading_groq_audio' }, { code: 'switching_to_local_fallback' }, { code: 'preparing_audio' }, { code: 'loading_local_model' }, { code: 'transcribing_local_audio' }, { code: 'saving_transcript' }, { code: 'completed' }];
     if (flow === 'groq_file_upload') return [{ code: 'reading_uploaded_audio' }, { code: 'uploading_groq_audio' }, { code: 'saving_transcript' }, { code: 'completed' }];
@@ -2288,12 +2295,12 @@ class VideoTranscriber {
 
     if (task) {
       const stageLabel = this._stageLabel(task.stage_code);
-      const label = stageLabel || msg || this.t('processing');
+      const label = msg || stageLabel || this.t('processing');
       this.progressMessage.textContent = label;
       this._setModeBadge(this._stageMode(task));
       if (this.stageCurrent) {
-        this.stageCurrent.textContent = msg && msg !== label
-          ? `${this.t('active_stage')}: ${label}`
+        this.stageCurrent.textContent = msg && stageLabel && msg !== stageLabel
+          ? `${this.t('active_stage')}: ${stageLabel}`
           : (stageLabel ? `${this.t('active_stage')}: ${stageLabel}` : '');
       }
       this._renderStageTimeline(task);

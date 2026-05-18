@@ -222,23 +222,45 @@ class DualModeContractTests(unittest.TestCase):
             task["dual_transcription_results"]["merge_strategy"], "deterministic"
         )
 
-    def test_dual_mode_rejects_non_local_provider(self):
-        task_id = "dual-reject-test"
-        main.tasks[task_id] = {"status": "processing", "url": ""}
-        main.processing_urls.clear()
+    def test_dual_mode_ignores_stale_flag_for_non_local_provider(self):
+        class FakeVideoProcessor:
+            async def fetch_subtitles(self, url, output_dir):
+                return None, "Dual Stale Flag", None, None
 
-        asyncio.run(
-            main.process_video_task(
-                task_id,
-                "",
-                transcription_provider="groq",
-                dual_local_transcription=True,
+            async def extract_audio_url(self, url):
+                return {
+                    "title": "Dual Stale Flag",
+                    "audio_url": "https://media.example/dual-stale-flag.m4a",
+                }
+
+        class FakeGroq:
+            async def transcribe_url(self, audio_url, language="", prompt=""):
+                return {
+                    "markdown": "Groq transcript",
+                    "language": "en",
+                }
+
+        main.video_processor = FakeVideoProcessor()
+        task_id = "dual-stale-flag-test"
+        url = "https://youtu.be/dual-stale-flag"
+        main.tasks[task_id] = {"status": "processing", "url": url}
+        main.processing_urls.add(url)
+
+        with patch.object(main, "GroqURLTranscriber", return_value=FakeGroq()):
+            asyncio.run(
+                main.process_video_task(
+                    task_id,
+                    url,
+                    transcription_provider="groq",
+                    dual_local_transcription=True,
+                    groq_api_key="gsk-test",
+                )
             )
-        )
 
         task = main.tasks[task_id]
-        self.assertEqual(task["status"], "error")
-        self.assertIn("local", task["error"].lower())
+        self.assertEqual(task["status"], "completed")
+        self.assertEqual(task["transcription_provider_used"], "groq")
+        self.assertFalse(task.get("used_local_fallback"))
 
     def test_dual_mode_skips_subtitles_even_when_enabled(self):
         main.video_processor = self._make_fake_processor()

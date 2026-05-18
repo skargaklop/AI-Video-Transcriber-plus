@@ -749,6 +749,44 @@ class MultiSourceOrchestrationTests(unittest.TestCase):
         self.assertIn("Platform subtitles + Local Parakeet", task["transcript"])
         self.assertNotIn("platform=+", task["transcript"])
 
+    def test_multi_source_emits_explicit_merging_stage_before_saving(self):
+        main.video_processor = self._make_fake_processor()
+        task_id = "multi-merge-stage-test"
+        url = "https://youtu.be/multi-merge-stage"
+        main.tasks[task_id] = {"status": "processing", "url": url}
+        main.processing_urls.add(url)
+        observed_stage_codes = []
+        original_push_task_update = main._push_task_update
+
+        def fake_prepare(backend, preset="", model_id=""):
+            return self._make_fake_transcriber(backend), f"{backend}-resolved"
+
+        async def fake_push(task_id_arg, **kwargs):
+            stage_code = kwargs.get("stage_code")
+            if stage_code:
+                observed_stage_codes.append(stage_code)
+            await original_push_task_update(task_id_arg, **kwargs)
+
+        with patch.object(main, "prepare_local_transcriber", side_effect=fake_prepare), \
+             patch.object(main, "ensure_backend_audio_file", side_effect=lambda path, backend, output_dir: path), \
+             patch.object(main, "backend_dependencies_available", return_value=True), \
+             patch.object(main, "_push_task_update", side_effect=fake_push):
+            asyncio.run(
+                main.process_video_task(
+                    task_id, url,
+                    transcription_sources_raw='["groq","local_parakeet"]',
+                    merge_mode_raw="system",
+                    merge_primary_source="groq",
+                    groq_api_key="gsk-test",
+                )
+            )
+
+        self.assertIn("merging_transcripts", observed_stage_codes)
+        self.assertLess(
+            observed_stage_codes.index("merging_transcripts"),
+            observed_stage_codes.index("saving_transcript"),
+        )
+
     def test_multi_source_raw_bundle(self):
         main.video_processor = self._make_fake_processor()
         task_id = "multi-raw-test"
@@ -999,7 +1037,13 @@ class FrontendMultiSourceTests(unittest.TestCase):
         self.assertIn("_startStatusPolling", app_js)
         self.assertIn("_handleTaskUpdate(task)", app_js)
         self.assertIn("fetch(`${this.apiBase}/task-status/${this.currentTaskId}`)", app_js)
-        self.assertIn("app.js?v=20260518-multi-source-gate", index_html)
+        self.assertIn("app.js?v=20260518-multi-source-status-line-case", index_html)
+
+    def test_frontend_progress_prefers_live_backend_message_over_stage_label(self):
+        app_js = (PROJECT_ROOT / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("const label = msg || stageLabel || this.t('processing');", app_js)
+        self.assertIn("msg && stageLabel && msg !== stageLabel", app_js)
+        self.assertIn("fallback.charAt(0).toUpperCase() + fallback.slice(1)", app_js)
 
     def test_frontend_does_not_submit_stale_dual_local_for_groq(self):
         app_js = (PROJECT_ROOT / "static" / "app.js").read_text(encoding="utf-8")
