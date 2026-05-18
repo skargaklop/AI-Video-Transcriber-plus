@@ -1411,6 +1411,42 @@
             <div id="localCapabilitiesDetail" class="status-note"></div>
           </div>
 
+          <div class="span2 settings-section local-api-setting" data-i18n="local_api_transcription">Local API Transcription</div>
+
+          <div class="span2 local-api-setting">
+            <label class="s-label" for="localApiBaseUrlInput" data-i18n="local_api_base_url">Local API Base URL</label>
+            <input id="localApiBaseUrlInput" class="s-input" type="url" placeholder="http://127.0.0.1:11434/v1"
+              data-i18n-placeholder="local_api_base_url_placeholder" autocomplete="off">
+          </div>
+
+          <div class="local-api-setting">
+            <label class="s-label" for="localApiKeyInput" data-i18n="local_api_key">Local API Key</label>
+            <input id="localApiKeyInput" class="s-input" type="password" placeholder="optional"
+              data-i18n-placeholder="local_api_key_placeholder" autocomplete="new-password">
+          </div>
+
+          <div class="local-api-setting">
+            <label class="s-label" for="localApiModelInput" data-i18n="local_api_model">Local API Model</label>
+            <input id="localApiModelInput" class="s-input" type="text" placeholder="whisper-large-v3"
+              data-i18n-placeholder="local_api_model_placeholder" autocomplete="off">
+          </div>
+
+          <div class="local-api-setting">
+            <label class="s-label" for="localApiLanguageInput" data-i18n="local_api_language">Input Language</label>
+            <input id="localApiLanguageInput" class="s-input" type="text" placeholder="auto"
+              data-i18n-placeholder="local_api_language_placeholder" maxlength="16" autocomplete="off">
+          </div>
+
+          <div class="local-api-setting">
+            <label class="s-label" for="localApiPromptInput" data-i18n="local_api_prompt">Transcription Prompt</label>
+            <input id="localApiPromptInput" class="s-input" type="text" placeholder="Names, topic, spelling..."
+              data-i18n-placeholder="local_api_prompt_placeholder" autocomplete="off">
+          </div>
+
+          <div class="span2 local-api-setting">
+            <div id="localApiNotice" class="status-note" data-i18n="local_api_notice">Use an OpenAI-compatible speech-to-text API endpoint.</div>
+          </div>
+
           <div class="span2 settings-section multi-source-section ms-source-picker" data-i18n="multi_source_section">Multi-Source Transcription</div>
 
           <div class="span2 multi-source-section ms-source-picker">
@@ -1492,42 +1528,6 @@
             <select id="msMergeModelInput" class="s-select">
               <option value="" data-i18n="model_default">— use server default —</option>
             </select>
-          </div>
-
-          <div class="span2 settings-section local-api-setting" data-i18n="local_api_transcription">Local API Transcription</div>
-
-          <div class="span2 local-api-setting">
-            <label class="s-label" for="localApiBaseUrlInput" data-i18n="local_api_base_url">Local API Base URL</label>
-            <input id="localApiBaseUrlInput" class="s-input" type="url" placeholder="http://127.0.0.1:11434/v1"
-              data-i18n-placeholder="local_api_base_url_placeholder" autocomplete="off">
-          </div>
-
-          <div class="local-api-setting">
-            <label class="s-label" for="localApiKeyInput" data-i18n="local_api_key">Local API Key</label>
-            <input id="localApiKeyInput" class="s-input" type="password" placeholder="optional"
-              data-i18n-placeholder="local_api_key_placeholder" autocomplete="new-password">
-          </div>
-
-          <div class="local-api-setting">
-            <label class="s-label" for="localApiModelInput" data-i18n="local_api_model">Local API Model</label>
-            <input id="localApiModelInput" class="s-input" type="text" placeholder="whisper-large-v3"
-              data-i18n-placeholder="local_api_model_placeholder" autocomplete="off">
-          </div>
-
-          <div class="local-api-setting">
-            <label class="s-label" for="localApiLanguageInput" data-i18n="local_api_language">Input Language</label>
-            <input id="localApiLanguageInput" class="s-input" type="text" placeholder="auto"
-              data-i18n-placeholder="local_api_language_placeholder" maxlength="16" autocomplete="off">
-          </div>
-
-          <div class="local-api-setting">
-            <label class="s-label" for="localApiPromptInput" data-i18n="local_api_prompt">Transcription Prompt</label>
-            <input id="localApiPromptInput" class="s-input" type="text" placeholder="Names, topic, spelling..."
-              data-i18n-placeholder="local_api_prompt_placeholder" autocomplete="off">
-          </div>
-
-          <div class="span2 local-api-setting">
-            <div id="localApiNotice" class="status-note" data-i18n="local_api_notice">Use an OpenAI-compatible speech-to-text API endpoint.</div>
           </div>
 
           <label class="span2 check-row">
