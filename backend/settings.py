@@ -45,6 +45,10 @@ DEFAULT_SETTINGS = {
     "merge_model": "",
     "merge_prompt": "",
     "merge_reasoning_effort": "",
+    "multi_source_enabled": False,
+    "transcription_sources": "",
+    "merge_mode": "",
+    "merge_primary_source": "",
 }
 
 _write_lock = threading.Lock()

@@ -7,6 +7,7 @@ class VideoTranscriber {
     this.currentTaskId = null;
     this.currentTask = null;
     this.eventSource = null;
+    this.statusPollTimer = null;
     this.apiBase = '/api';
     this.currentLang = 'en';
     this.inputSourceMode = 'url';
@@ -416,6 +417,25 @@ class VideoTranscriber {
       merge_reasoning_effort: 'Merge Reasoning',
       mode_dual_local: 'Dual Local',
       stage_dual_transcribing: 'Running dual transcription',
+      multi_source_section: 'Multi-Source Transcription',
+      multi_source_enable: 'Enable multi-source transcription',
+      transcription_sources_label: 'Transcription Sources',
+      source_platform: 'Platform subtitles',
+      source_groq: 'Groq Whisper',
+      source_local_whisper: 'Local Whisper',
+      source_local_parakeet: 'Local Parakeet',
+      merge_mode_label: 'Merge Mode',
+      merge_mode_system: 'System merge (deterministic)',
+      merge_mode_raw: 'Raw bundle (no merge)',
+      merge_mode_ai: 'AI merge',
+      merge_primary_source: 'Primary Source',
+      mode_multi_source: 'Multi-Source',
+      stage_multi_source: 'Running multi-source transcription',
+      source_status_title: 'Concurrent sources',
+      source_status_pending: 'Queued',
+      source_status_running: 'Running',
+      source_status_completed: 'Done',
+      source_status_failed: 'Failed',
     });
 
     Object.assign(this.i18n.ru, {
@@ -502,6 +522,25 @@ class VideoTranscriber {
       merge_reasoning_effort: 'Рассуждение слияния',
       mode_dual_local: 'Двойное локальное',
       stage_dual_transcribing: 'Двойная транскрибация',
+      multi_source_section: 'Мультиисточниковая транскрибация',
+      multi_source_enable: 'Включить мультиисточниковую транскрибацию',
+      transcription_sources_label: 'Источники транскрибации',
+      source_platform: 'Субтитры платформы',
+      source_groq: 'Groq Whisper',
+      source_local_whisper: 'Локальный Whisper',
+      source_local_parakeet: 'Локальный Parakeet',
+      merge_mode_label: 'Режим слияния',
+      merge_mode_system: 'Системное слияние (детерминированное)',
+      merge_mode_raw: 'Исходный набор (без слияния)',
+      merge_mode_ai: 'AI слияние',
+      merge_primary_source: 'Основной источник',
+      mode_multi_source: 'Мультиисточник',
+      stage_multi_source: 'Запуск мультиисточниковой транскрибации',
+      source_status_title: 'Параллельные источники',
+      source_status_pending: 'В очереди',
+      source_status_running: 'В работе',
+      source_status_completed: 'Готово',
+      source_status_failed: 'Ошибка',
     });
 
     Object.assign(this.i18n.uk, {
@@ -588,6 +627,25 @@ class VideoTranscriber {
       merge_reasoning_effort: 'Міркування злиття',
       mode_dual_local: 'Подвійне локальне',
       stage_dual_transcribing: 'Подвійне транскрибування',
+      multi_source_section: 'Мультіджерельне транскрибування',
+      multi_source_enable: 'Увімкнути мультіджерельне транскрибування',
+      transcription_sources_label: 'Джерела транскрибування',
+      source_platform: 'Субтитри платформи',
+      source_groq: 'Groq Whisper',
+      source_local_whisper: 'Локальний Whisper',
+      source_local_parakeet: 'Локальний Parakeet',
+      merge_mode_label: 'Режим злиття',
+      merge_mode_system: 'Системне злиття (детерміноване)',
+      merge_mode_raw: 'Сирий набір (без злиття)',
+      merge_mode_ai: 'AI злиття',
+      merge_primary_source: 'Основне джерело',
+      mode_multi_source: 'Мультіджерельний',
+      stage_multi_source: 'Запуск мультіджерельного транскрибування',
+      source_status_title: 'Паралельні джерела',
+      source_status_pending: 'У черзі',
+      source_status_running: 'В роботі',
+      source_status_completed: 'Готово',
+      source_status_failed: 'Помилка',
     });
 
     Object.assign(this.i18n.zh, {
@@ -674,6 +732,25 @@ class VideoTranscriber {
       merge_reasoning_effort: '合并推理',
       mode_dual_local: '双本地',
       stage_dual_transcribing: '双重转录中',
+      multi_source_section: '多源转录',
+      multi_source_enable: '启用多源转录',
+      transcription_sources_label: '转录来源',
+      source_platform: '平台字幕',
+      source_groq: 'Groq Whisper',
+      source_local_whisper: '本地 Whisper',
+      source_local_parakeet: '本地 Parakeet',
+      merge_mode_label: '合并模式',
+      merge_mode_system: '系统合并（确定性）',
+      merge_mode_raw: '原始包（不合并）',
+      merge_mode_ai: 'AI 合并',
+      merge_primary_source: '主要来源',
+      mode_multi_source: '多源',
+      stage_multi_source: '正在运行多源转录',
+      source_status_title: '并发来源',
+      source_status_pending: '排队中',
+      source_status_running: '运行中',
+      source_status_completed: '完成',
+      source_status_failed: '失败',
     });
 
     this._initElements();
@@ -715,6 +792,7 @@ class VideoTranscriber {
     this.stageCurrent = document.getElementById('stageCurrent');
     this.stageElapsed = document.getElementById('stageElapsed');
     this.stageTimeline = document.getElementById('stageTimeline');
+    this.sourceStatusPanel = document.getElementById('sourceStatusPanel');
     this.resultsPanel = document.getElementById('resultsPanel');
     this.scriptContent = document.getElementById('scriptContent');
     this.copyTranscriptTop = document.getElementById('copyTranscriptTop');
@@ -795,6 +873,21 @@ class VideoTranscriber {
     this.mergePromptInput = document.getElementById('mergePromptInput');
     this.mergeReasoningEffortSelect = document.getElementById('mergeReasoningEffortSelect');
     this.dualLocalSettings = Array.from(document.querySelectorAll('.dual-local-setting'));
+    // Multi-source elements
+    this.multiSourceEnabledInput = document.getElementById('multiSourceEnabledInput');
+    this.sourceCheckboxes = Array.from(document.querySelectorAll('.source-checkbox'));
+    this.multiSourceProviderPicker = document.querySelector('.multi-source-provider-picker');
+    this.mergeModeSelect = document.getElementById('mergeModeSelect');
+    this.mergePrimarySourceSelect = document.getElementById('mergePrimarySourceSelect');
+    this.mergePrimarySourceRow = document.getElementById('mergePrimarySourceRow');
+    this.msMergeBaseUrlInput = document.getElementById('msMergeBaseUrlInput');
+    this.msMergeApiKeyInput = document.getElementById('msMergeApiKeyInput');
+    this.msMergeModelInput = document.getElementById('msMergeModelInput');
+    this.msMergeFetchModelsBtn = document.getElementById('msMergeFetchModelsBtn');
+    this.msMergeFetchIcon = document.getElementById('msMergeFetchIcon');
+    this.msMergeFetchStatus = document.getElementById('msMergeFetchStatus');
+    this.multiSourceSections = Array.from(document.querySelectorAll('.multi-source-section:not(.ms-source-picker)'));
+    this.msMergeAiSettings = Array.from(document.querySelectorAll('.multi-source-merge-ai'));
   }
 
   /* -- Events ---------------------------------------------------- */
@@ -837,6 +930,7 @@ class VideoTranscriber {
     // Fetch models
     this.fetchModelsBtn.addEventListener('click', () => this._fetchModels());
     this.modelSelect.addEventListener('change', () => this._updateReasoningAvailability());
+    this.msMergeFetchModelsBtn?.addEventListener('click', () => this._fetchMergeModels());
     this.transcriptionProviderSelect.addEventListener('change', () => {
       this._syncProviderSettings();
       this._saveSettings();
@@ -858,6 +952,21 @@ class VideoTranscriber {
       this._syncDualSettings();
       this._saveSettings();
     });
+    this.multiSourceEnabledInput?.addEventListener('change', () => {
+      this._syncMultiSourceSettings();
+      this._saveSettings();
+    });
+    this.sourceCheckboxes.forEach(cb => {
+      cb.addEventListener('change', () => {
+        this._syncMultiSourceSettings();
+        this._saveSettings();
+      });
+    });
+    this.mergeModeSelect?.addEventListener('change', () => {
+      this._syncMultiSourceSettings();
+      this._saveSettings();
+    });
+    this.mergePrimarySourceSelect?.addEventListener('change', () => this._saveSettings());
     this.dualWhisperModelPresetSelect.addEventListener('change', () => {
       this._syncDualSettings();
       this._saveSettings();
@@ -873,6 +982,13 @@ class VideoTranscriber {
     }, 900);
     this.modelBaseUrl.addEventListener('input', debouncedFetch);
     this.apiKeyInput.addEventListener('input', debouncedFetch);
+    const debouncedMergeFetch = this._debounce(() => {
+      if (this.msMergeBaseUrlInput?.value.trim() && this.msMergeApiKeyInput?.value.trim()) {
+        this._fetchMergeModels(true);
+      }
+    }, 900);
+    this.msMergeBaseUrlInput?.addEventListener('input', debouncedMergeFetch);
+    this.msMergeApiKeyInput?.addEventListener('input', debouncedMergeFetch);
 
     // Persist settings
     [
@@ -907,6 +1023,11 @@ class VideoTranscriber {
       this.mergeModelInput,
       this.mergePromptInput,
       this.mergeReasoningEffortSelect,
+      this.mergeModeSelect,
+      this.mergePrimarySourceSelect,
+      this.msMergeBaseUrlInput,
+      this.msMergeApiKeyInput,
+      this.msMergeModelInput,
     ].forEach(el => {
       el.addEventListener('change', () => this._saveSettings());
     });
@@ -1066,6 +1187,13 @@ class VideoTranscriber {
       mergeModel: this.mergeModelInput?.value || '',
       mergePrompt: this.mergePromptInput?.value || '',
       mergeReasoningEffort: this.mergeReasoningEffortSelect?.value || '',
+      multiSourceEnabled: this.multiSourceEnabledInput?.checked || false,
+      msSources: this._getSelectedSources(),
+      msMergeMode: this.mergeModeSelect?.value || 'system',
+      msMergePrimarySource: this.mergePrimarySourceSelect?.value || '',
+      msMergeBaseUrl: this.msMergeBaseUrlInput?.value || '',
+      msMergeApiKey: this.msMergeApiKeyInput?.value || '',
+      msMergeModel: this.msMergeModelInput?.value || '',
     };
     try { localStorage.setItem('vt_settings', JSON.stringify(s)); } catch (_) { }
     if (!this._debouncedServerSave) {
@@ -1115,6 +1243,15 @@ class VideoTranscriber {
       if (s.mergeModel && this.mergeModelInput) this.mergeModelInput.value = s.mergeModel;
       if (s.mergePrompt && this.mergePromptInput) this.mergePromptInput.value = s.mergePrompt;
       if (s.mergeReasoningEffort && this.mergeReasoningEffortSelect) this.mergeReasoningEffortSelect.value = s.mergeReasoningEffort;
+      if (this.multiSourceEnabledInput) this.multiSourceEnabledInput.checked = Boolean(s.multiSourceEnabled);
+      if (Array.isArray(s.msSources)) {
+        this.sourceCheckboxes.forEach(cb => { cb.checked = s.msSources.includes(cb.value); });
+      }
+      if (s.msMergeMode && this.mergeModeSelect) this.mergeModeSelect.value = s.msMergeMode;
+      if (s.msMergePrimarySource && this.mergePrimarySourceSelect) this.mergePrimarySourceSelect.value = s.msMergePrimarySource;
+      if (s.msMergeBaseUrl && this.msMergeBaseUrlInput) this.msMergeBaseUrlInput.value = s.msMergeBaseUrl;
+      if (s.msMergeApiKey && !s.msMergeApiKey.includes('...') && this.msMergeApiKeyInput) this.msMergeApiKeyInput.value = s.msMergeApiKey;
+      if (s.msMergeModel && this.msMergeModelInput) this._setSelectValue(this.msMergeModelInput, s.msMergeModel);
       if (['md', 'txt', 'pdf'].includes(s.transcriptSaveFormat)) {
         this.saveTranscriptFormatTop.value = s.transcriptSaveFormat;
         this.saveTranscriptFormatBottom.value = s.transcriptSaveFormat;
@@ -1182,6 +1319,21 @@ class VideoTranscriber {
       if (s.merge_model && this.mergeModelInput) this.mergeModelInput.value = s.merge_model;
       if (s.merge_prompt && this.mergePromptInput) this.mergePromptInput.value = s.merge_prompt;
       if (s.merge_reasoning_effort && this.mergeReasoningEffortSelect) this.mergeReasoningEffortSelect.value = s.merge_reasoning_effort;
+      if (s.transcription_sources) {
+        try {
+          const msSources = JSON.parse(s.transcription_sources);
+          if (Array.isArray(msSources)) {
+            if (this.multiSourceEnabledInput) this.multiSourceEnabledInput.checked = msSources.length > 0;
+            this.sourceCheckboxes.forEach(cb => { cb.checked = msSources.includes(cb.value); });
+          }
+        } catch (_) {}
+      }
+      if (s.multi_source_enabled !== undefined && this.multiSourceEnabledInput) {
+        this.multiSourceEnabledInput.checked = Boolean(s.multi_source_enabled);
+      }
+      if (s.merge_mode && this.mergeModeSelect) this.mergeModeSelect.value = s.merge_mode;
+      if (s.merge_primary_source && this.mergePrimarySourceSelect) this.mergePrimarySourceSelect.value = s.merge_primary_source;
+      this._syncMultiSourceSettings();
       this._syncProviderSettings();
     } catch (_) { }
   }
@@ -1211,7 +1363,7 @@ class VideoTranscriber {
       summary_format: this.summaryFormatSel.value,
       summary_prompt: this.summaryPromptInput.value.trim(),
       reasoning_effort: this.reasoningEffortSelect.value,
-      dual_local_transcription: this.dualLocalInput?.checked || false,
+      dual_local_transcription: this.transcriptionProviderSelect.value === 'local' && !this.multiSourceEnabledInput?.checked && Boolean(this.dualLocalInput?.checked),
       dual_whisper_model_preset: this.dualWhisperModelPresetSelect?.value || 'base',
       dual_whisper_model_id: this.dualWhisperModelIdInput?.value?.trim() || '',
       dual_parakeet_model_preset: this.dualParakeetModelPresetSelect?.value || '',
@@ -1222,6 +1374,10 @@ class VideoTranscriber {
       merge_model: this.mergeModelInput?.value?.trim() || '',
       merge_prompt: this.mergePromptInput?.value?.trim() || '',
       merge_reasoning_effort: this.mergeReasoningEffortSelect?.value || '',
+      multi_source_enabled: this.multiSourceEnabledInput?.checked || false,
+      transcription_sources: this.multiSourceEnabledInput?.checked ? JSON.stringify(this._getSelectedSources()) : '',
+      merge_mode: this.mergeModeSelect?.value || '',
+      merge_primary_source: this.mergePrimarySourceSelect?.value || '',
     };
     fetch(`${this.apiBase}/settings`, {
       method: 'POST',
@@ -1382,6 +1538,9 @@ class VideoTranscriber {
 
   _syncDualSettings() {
     const isLocal = (this.transcriptionProviderSelect?.value || 'groq') === 'local';
+    if (!isLocal && this.dualLocalInput?.checked) {
+      this.dualLocalInput.checked = false;
+    }
     const isDual = Boolean(this.dualLocalInput?.checked);
     const showDual = isLocal && isDual;
     const showDualWhisperCustom = this.dualWhisperModelPresetSelect?.value === 'custom';
@@ -1401,6 +1560,39 @@ class VideoTranscriber {
       const hideForFile = (this.inputSourceMode || 'url') === 'file';
       this.trySubtitlesFirstRow.classList.toggle('setting-hidden', hideForDual || hideForFile);
     }
+  }
+
+  _syncMultiSourceSettings() {
+    const enabled = Boolean(this.multiSourceEnabledInput?.checked);
+    const checkedSources = this.sourceCheckboxes.filter(cb => cb.checked).map(cb => cb.value);
+    const hasSources = enabled && checkedSources.length > 0;
+    const mergeMode = this.mergeModeSelect?.value || 'system';
+    const showAiMerge = enabled && mergeMode === 'ai';
+    const showPrimary = enabled && mergeMode === 'system' && checkedSources.length > 1;
+
+    if (this.multiSourceProviderPicker) this.multiSourceProviderPicker.classList.toggle('setting-hidden', !enabled);
+    this.sourceCheckboxes.forEach(cb => { cb.disabled = !enabled; });
+    this.multiSourceSections?.forEach(el => el.classList.toggle('setting-hidden', !hasSources));
+    this.msMergeAiSettings?.forEach(el => el.classList.toggle('setting-hidden', !showAiMerge));
+    if (this.mergePrimarySourceRow) this.mergePrimarySourceRow.classList.toggle('setting-hidden', !showPrimary);
+
+    // Update primary source dropdown to only show checked sources
+    if (this.mergePrimarySourceSelect) {
+      const current = this.mergePrimarySourceSelect.value;
+      const options = this.mergePrimarySourceSelect.querySelectorAll('option');
+      options.forEach(opt => {
+        if (!opt.value) return;
+        opt.hidden = !checkedSources.includes(opt.value);
+      });
+      if (current && !checkedSources.includes(current)) {
+        this.mergePrimarySourceSelect.value = '';
+      }
+    }
+  }
+
+  _getSelectedSources() {
+    if (!this.multiSourceEnabledInput?.checked) return [];
+    return this.sourceCheckboxes.filter(cb => cb.checked).map(cb => cb.value);
   }
 
   _populateDualModelPresets() {
@@ -1443,6 +1635,18 @@ class VideoTranscriber {
   }
 
   /* -- Fetch models ---------------------------------------------- */
+  _setSelectValue(selectEl, value) {
+    if (!selectEl || !value) return;
+    const exists = Array.from(selectEl.options || []).some(opt => opt.value === value);
+    if (!exists) {
+      const opt = document.createElement('option');
+      opt.value = value;
+      opt.textContent = value;
+      selectEl.appendChild(opt);
+    }
+    selectEl.value = value;
+  }
+
   async _fetchModels(silent = false) {
     const baseUrl = this.modelBaseUrl.value.trim().replace(/\/$/, '');
     const apiKey = this.apiKeyInput.value.trim();
@@ -1501,6 +1705,61 @@ class VideoTranscriber {
   _setFetchStatus(cls, msg) {
     this.fetchStatus.className = 'fetch-status' + (cls ? ` ${cls}` : '');
     this.fetchStatus.textContent = msg;
+  }
+
+  async _fetchMergeModels(silent = false) {
+    const baseUrl = this.msMergeBaseUrlInput?.value.trim().replace(/\/$/, '') || '';
+    const apiKey = this.msMergeApiKeyInput?.value.trim() || '';
+
+    if (!baseUrl || !apiKey) {
+      if (!silent) this._setMergeFetchStatus('err', this.t('api_key') + ' & URL required');
+      return;
+    }
+
+    if (this.msMergeFetchModelsBtn) this.msMergeFetchModelsBtn.disabled = true;
+    if (this.msMergeFetchIcon) this.msMergeFetchIcon.className = 'fas fa-spinner fa-spin';
+    if (!silent) this._setMergeFetchStatus('', this.t('fetching_models'));
+
+    try {
+      const current = this.msMergeModelInput?.value || '';
+      const fd = new FormData();
+      fd.append('base_url', baseUrl);
+      fd.append('api_key', apiKey);
+
+      const resp = await fetch(`${this.apiBase}/models`, { method: 'POST', body: fd });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.detail || `HTTP ${resp.status}`);
+      }
+      const data = await resp.json();
+      const models = data.data || data.models || [];
+
+      this.msMergeModelInput.innerHTML = `<option value="">${this.t('model_default')}</option>`;
+      models.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m.id;
+        opt.textContent = m.name || m.id;
+        this.msMergeModelInput.appendChild(opt);
+      });
+
+      if (current) this._setSelectValue(this.msMergeModelInput, current);
+
+      this._setMergeFetchStatus('ok', typeof this.t('models_loaded') === 'function'
+        ? this.t('models_loaded')(models.length)
+        : `${models.length} models`);
+    } catch (e) {
+      console.warn('Merge model fetch error:', e);
+      this._setMergeFetchStatus('err', this.t('models_error') + ': ' + e.message);
+    } finally {
+      if (this.msMergeFetchModelsBtn) this.msMergeFetchModelsBtn.disabled = false;
+      if (this.msMergeFetchIcon) this.msMergeFetchIcon.className = 'fas fa-sync-alt';
+    }
+  }
+
+  _setMergeFetchStatus(cls, msg) {
+    if (!this.msMergeFetchStatus) return;
+    this.msMergeFetchStatus.className = 'fetch-status' + (cls ? ` ${cls}` : '');
+    this.msMergeFetchStatus.textContent = msg;
   }
 
   _modelSupportsReasoning(modelId) {
@@ -1587,7 +1846,15 @@ class VideoTranscriber {
       if (localApiPrompt) fd.append('local_api_prompt', localApiPrompt);
       fd.append('include_timecodes', this.includeTimecodesInput.checked ? 'true' : 'false');
 
-      const dualLocal = this.dualLocalInput?.checked || false;
+      const multiSourceEnabled = Boolean(this.multiSourceEnabledInput?.checked);
+      const msSources = this._getSelectedSources();
+      if (multiSourceEnabled && msSources.length === 0) {
+        this._showError('Select at least one transcription source or disable multi-source transcription.');
+        this._setLoading(false);
+        this._hideProgress();
+        return;
+      }
+      const dualLocal = transcriptionProvider === 'local' && msSources.length === 0 && Boolean(this.dualLocalInput?.checked);
       const dualWhisperModelPreset = this.dualWhisperModelPresetSelect?.value || 'base';
       const dualWhisperModelId = this.dualWhisperModelIdInput?.value?.trim() || '';
       const dualParakeetModelPreset = this.dualParakeetModelPresetSelect?.value || '';
@@ -1609,6 +1876,30 @@ class VideoTranscriber {
       if (mergeModel) fd.append('merge_model', mergeModel);
       if (mergePrompt) fd.append('merge_prompt', mergePrompt);
       if (mergeReasoningEffort) fd.append('merge_reasoning_effort', mergeReasoningEffort);
+
+      // Multi-source fields
+      if (msSources.length > 0) {
+        fd.append('transcription_sources', JSON.stringify(msSources));
+        const msMergeMode = this.mergeModeSelect?.value || 'system';
+        fd.append('merge_mode', msMergeMode);
+        const msPrimary = this.mergePrimarySourceSelect?.value || '';
+        if (msMergeMode === 'system' && msSources.length > 1 && !msPrimary) {
+          this._showError('A primary source is required for system merge.');
+          this._setLoading(false);
+          this._hideProgress();
+          return;
+        }
+        fd.append('merge_primary_source', msPrimary);
+        // Multi-source AI merge credentials
+        if (msMergeMode === 'ai') {
+          const msBaseUrl = this.msMergeBaseUrlInput?.value?.trim().replace(/\/$/, '') || '';
+          const msApiKey = this.msMergeApiKeyInput?.value?.trim() || '';
+          const msModel = this.msMergeModelInput?.value?.trim() || '';
+          if (msBaseUrl) fd.append('merge_base_url', msBaseUrl);
+          if (msApiKey) fd.append('merge_api_key', msApiKey);
+          if (msModel) fd.append('merge_model', msModel);
+        }
+      }
 
       const resp = await fetch(`${this.apiBase}/process-video`, { method: 'POST', body: fd });
       if (!resp.ok) {
@@ -1635,39 +1926,13 @@ class VideoTranscriber {
   _startSSE() {
     if (!this.currentTaskId) return;
     this.eventSource = new EventSource(`${this.apiBase}/task-stream/${this.currentTaskId}`);
+    this._startStatusPolling();
 
     this.eventSource.onmessage = (ev) => {
       try {
         const task = JSON.parse(ev.data);
         if (task.type === 'heartbeat') return;
-
-        this.currentTask = task;
-        this._updateProgress(task.progress, task.message, true, task);
-
-        if (task.summary_status === 'processing') {
-          if (this.summaryPrompt) {
-            this.summaryPrompt.style.display = 'flex';
-            this.summaryPrompt.querySelector('span').textContent = task.message || this.t('generating_summary');
-          }
-          return;
-        }
-
-        if (task.summary_status === 'completed') {
-          this._stopSP(); this._stopSSE(); this._setLoading(false); this._hideProgress();
-          this._finishSummaryLoading();
-          this._showResults(task);
-          this._switchTab('summary');
-        } else if (task.summary_status === 'error') {
-          this._stopSSE();
-          this._finishSummaryLoading();
-          this._showError(task.summary_error || task.message || 'Summary error');
-        } else if (task.status === 'completed') {
-          this._stopSP(); this._stopSSE(); this._setLoading(false); this._hideProgress();
-          this._showResults(task);
-        } else if (task.status === 'error') {
-          this._stopSP(); this._stopSSE(); this._setLoading(false); this._hideProgress();
-          this._showError(task.error || 'Processing error');
-        }
+        this._handleTaskUpdate(task);
       } catch (_) { }
     };
 
@@ -1717,7 +1982,58 @@ class VideoTranscriber {
   }
 
   _stopSSE() {
+    this._stopStatusPolling();
     if (this.eventSource) { this.eventSource.close(); this.eventSource = null; }
+  }
+
+  _startStatusPolling() {
+    this._stopStatusPolling();
+    this.statusPollTimer = setInterval(async () => {
+      if (!this.currentTaskId) return;
+      try {
+        const r = await fetch(`${this.apiBase}/task-status/${this.currentTaskId}`);
+        if (!r.ok) return;
+        const task = await r.json();
+        this._handleTaskUpdate(task);
+      } catch (_) { }
+    }, 2500);
+  }
+
+  _stopStatusPolling() {
+    if (this.statusPollTimer) {
+      clearInterval(this.statusPollTimer);
+      this.statusPollTimer = null;
+    }
+  }
+
+  _handleTaskUpdate(task) {
+    this.currentTask = task;
+    this._updateProgress(task.progress, task.message, true, task);
+
+    if (task.summary_status === 'processing') {
+      if (this.summaryPrompt) {
+        this.summaryPrompt.style.display = 'flex';
+        this.summaryPrompt.querySelector('span').textContent = task.message || this.t('generating_summary');
+      }
+      return;
+    }
+
+    if (task.summary_status === 'completed') {
+      this._stopSP(); this._stopSSE(); this._setLoading(false); this._hideProgress();
+      this._finishSummaryLoading();
+      this._showResults(task);
+      this._switchTab('summary');
+    } else if (task.summary_status === 'error') {
+      this._stopSSE();
+      this._finishSummaryLoading();
+      this._showError(task.summary_error || task.message || 'Summary error');
+    } else if (task.status === 'completed') {
+      this._stopSP(); this._stopSSE(); this._setLoading(false); this._hideProgress();
+      this._showResults(task);
+    } else if (task.status === 'error') {
+      this._stopSP(); this._stopSSE(); this._setLoading(false); this._hideProgress();
+      this._showError(task.error || 'Processing error');
+    }
   }
 
   _finishSummaryLoading() {
@@ -1759,6 +2075,11 @@ class VideoTranscriber {
       if (this.progressFill) this.progressFill.classList.remove('subtitle-mode');
     } else if (mode === 'dual_local') {
       this.modeBadge.textContent = this.t('mode_dual_local');
+      this.modeBadge.className = 'mode-badge local';
+      this.modeBadge.style.display = 'inline-block';
+      if (this.progressFill) this.progressFill.classList.remove('subtitle-mode');
+    } else if (mode === 'multi_source') {
+      this.modeBadge.textContent = this.t('mode_multi_source');
       this.modeBadge.className = 'mode-badge local';
       this.modeBadge.style.display = 'inline-block';
       if (this.progressFill) this.progressFill.classList.remove('subtitle-mode');
@@ -1833,6 +2154,7 @@ class VideoTranscriber {
     if (flow === 'local_api') return 'local_api';
     if (flow === 'groq_local_fallback' || flow === 'groq_local_file_fallback' || task.used_local_fallback) return 'fallback';
     if (flow === 'dual_local') return 'dual_local';
+    if (flow === 'multi_source') return 'multi_source';
     if (flow === 'local') return 'local';
     if (flow === 'groq_file_upload') return 'groq';
     return 'groq';
@@ -1870,6 +2192,50 @@ class VideoTranscriber {
       item.append(dot, label);
       this.stageTimeline.appendChild(item);
     });
+  }
+
+  _renderSourceStatuses(task) {
+    if (!this.sourceStatusPanel) return;
+    const statuses = Array.isArray(task?.source_statuses) ? task.source_statuses : [];
+    this.sourceStatusPanel.innerHTML = '';
+    this.sourceStatusPanel.classList.toggle('show', statuses.length > 0);
+    if (!statuses.length) return;
+
+    const title = document.createElement('div');
+    title.className = 'source-status-title';
+    title.textContent = this.t('source_status_title');
+
+    const grid = document.createElement('div');
+    grid.className = 'source-status-grid';
+
+    statuses.forEach(src => {
+      const status = String(src.status || 'pending').toLowerCase();
+      const card = document.createElement('div');
+      card.className = `source-status-card ${status}`;
+
+      const name = document.createElement('span');
+      name.className = 'source-status-name';
+      name.textContent = src.label || src.source_id || '';
+
+      const state = document.createElement('span');
+      state.className = 'source-status-state';
+      const statusKey = `source_status_${status}`;
+      const translated = this.t(statusKey);
+      state.textContent = translated && translated !== statusKey ? translated : status;
+
+      card.append(name, state);
+
+      if (src.detail) {
+        const detail = document.createElement('span');
+        detail.className = 'source-status-detail';
+        detail.textContent = src.detail;
+        card.append(detail);
+      }
+
+      grid.appendChild(card);
+    });
+
+    this.sourceStatusPanel.append(title, grid);
   }
 
   _formatStageElapsed(ms) {
@@ -1931,6 +2297,7 @@ class VideoTranscriber {
           : (stageLabel ? `${this.t('active_stage')}: ${stageLabel}` : '');
       }
       this._renderStageTimeline(task);
+      this._renderSourceStatuses(task);
       this._startStageTimer(task);
       return;
     }
@@ -1939,6 +2306,10 @@ class VideoTranscriber {
     if (this.stageCurrent) this.stageCurrent.textContent = '';
     if (this.stageTimeline) this.stageTimeline.innerHTML = '';
     if (this.stageElapsed) this.stageElapsed.textContent = '';
+    if (this.sourceStatusPanel) {
+      this.sourceStatusPanel.innerHTML = '';
+      this.sourceStatusPanel.classList.remove('show');
+    }
   }
 
   _showProgress() {
@@ -1952,10 +2323,18 @@ class VideoTranscriber {
     if (this.stageCurrent) this.stageCurrent.textContent = '';
     if (this.stageElapsed) this.stageElapsed.textContent = '';
     if (this.stageTimeline) this.stageTimeline.innerHTML = '';
+    if (this.sourceStatusPanel) {
+      this.sourceStatusPanel.innerHTML = '';
+      this.sourceStatusPanel.classList.remove('show');
+    }
   }
   _hideProgress() {
     this._stopStageTimer();
     this.progressPanel.classList.remove('show');
+    if (this.sourceStatusPanel) {
+      this.sourceStatusPanel.innerHTML = '';
+      this.sourceStatusPanel.classList.remove('show');
+    }
   }
 
   /* -- Results --------------------------------------------------- */

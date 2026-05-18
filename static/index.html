@@ -445,8 +445,9 @@
     }
 
     .settings-body.open {
-      max-height: 1200px;
+      max-height: 5000px;
       margin-top: 12px;
+      overflow: visible;
     }
 
     .settings-card {
@@ -554,7 +555,8 @@
       gap: 7px;
     }
 
-    .key-row .s-input {
+    .key-row .s-input,
+    .key-row .s-select {
       flex: 1;
       min-width: 0;
     }
@@ -834,6 +836,99 @@
     .stage-step.error .stage-step-dot {
       background: var(--error);
       opacity: 1;
+    }
+
+    .source-status-panel {
+      display: none;
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+    }
+
+    .source-status-panel.show {
+      display: block;
+    }
+
+    .source-status-title {
+      margin-bottom: 8px;
+      color: var(--text-muted);
+      font-size: 10.5px;
+      font-weight: 700;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+
+    .source-status-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 8px;
+    }
+
+    .source-status-card {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 4px 8px;
+      min-height: 40px;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface-2);
+      color: var(--text-dim);
+      align-items: center;
+    }
+
+    .source-status-name,
+    .source-status-state,
+    .source-status-detail {
+      min-width: 0;
+      overflow-wrap: anywhere;
+      line-height: 1.3;
+    }
+
+    .source-status-name {
+      color: var(--text-on-surface);
+      font-size: 11.5px;
+      font-weight: 600;
+    }
+
+    .source-status-state {
+      font-size: 10.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+
+    .source-status-detail {
+      grid-column: 1 / -1;
+      color: var(--text-muted);
+      font-size: 10.5px;
+    }
+
+    .source-status-card.running {
+      border-color: rgba(248, 150, 53, .48);
+      background: rgba(248, 150, 53, .09);
+    }
+
+    .source-status-card.running .source-status-state {
+      color: var(--accent-dim);
+    }
+
+    .source-status-card.completed {
+      border-color: rgba(106, 171, 148, .55);
+      background: rgba(106, 171, 148, .1);
+    }
+
+    .source-status-card.completed .source-status-state {
+      color: var(--success);
+    }
+
+    .source-status-card.failed {
+      border-color: rgba(224, 120, 120, .45);
+      background: rgba(224, 120, 120, .08);
+    }
+
+    .source-status-card.failed .source-status-state {
+      color: var(--error);
     }
 
     /* results */
@@ -1387,6 +1482,67 @@
             </select>
           </div>
 
+          <div class="span2 settings-section multi-source-section ms-source-picker" data-i18n="multi_source_section">Multi-Source Transcription</div>
+
+          <div class="span2 multi-source-section ms-source-picker">
+            <label class="check-row"><input type="checkbox" id="multiSourceEnabledInput"> <span data-i18n="multi_source_enable">Enable multi-source transcription</span></label>
+          </div>
+
+          <div class="span2 multi-source-section ms-source-picker multi-source-provider-picker">
+            <label class="s-label" data-i18n="transcription_sources_label">Transcription Sources</label>
+            <div class="source-checkboxes" id="sourceCheckboxes">
+              <label class="check-row"><input type="checkbox" class="source-checkbox" value="platform"> <span data-i18n="source_platform">Platform subtitles</span></label>
+              <label class="check-row"><input type="checkbox" class="source-checkbox" value="groq"> <span data-i18n="source_groq">Groq Whisper</span></label>
+              <label class="check-row"><input type="checkbox" class="source-checkbox" value="local_whisper"> <span data-i18n="source_local_whisper">Local Whisper</span></label>
+              <label class="check-row"><input type="checkbox" class="source-checkbox" value="local_parakeet"> <span data-i18n="source_local_parakeet">Local Parakeet</span></label>
+            </div>
+          </div>
+
+          <div class="span2 multi-source-section">
+            <label class="s-label" for="mergeModeSelect" data-i18n="merge_mode_label">Merge Mode</label>
+            <select id="mergeModeSelect" class="s-select">
+              <option value="system" data-i18n="merge_mode_system">System merge (deterministic)</option>
+              <option value="raw" data-i18n="merge_mode_raw">Raw bundle (no merge)</option>
+              <option value="ai" data-i18n="merge_mode_ai">AI merge</option>
+            </select>
+          </div>
+
+          <div class="span2 multi-source-section" id="mergePrimarySourceRow">
+            <label class="s-label" for="mergePrimarySourceSelect" data-i18n="merge_primary_source">Primary Source</label>
+            <select id="mergePrimarySourceSelect" class="s-select">
+              <option value="platform">Platform</option>
+              <option value="groq">Groq</option>
+              <option value="local_whisper">Local Whisper</option>
+              <option value="local_parakeet">Local Parakeet</option>
+            </select>
+          </div>
+
+          <div class="span2 multi-source-section multi-source-merge-ai setting-hidden">
+            <label class="s-label" for="msMergeBaseUrlInput" data-i18n="merge_base_url">Merge API Base URL</label>
+            <input id="msMergeBaseUrlInput" class="s-input" type="url" placeholder="https://api.openai.com/v1"
+              data-i18n-placeholder="model_base_url_placeholder" autocomplete="off">
+          </div>
+
+          <div class="span2 multi-source-section multi-source-merge-ai setting-hidden">
+            <label class="s-label" for="msMergeApiKeyInput" data-i18n="merge_api_key">Merge API Key</label>
+            <div class="key-row">
+              <input id="msMergeApiKeyInput" class="s-input" type="password" placeholder="sk-..."
+                data-i18n-placeholder="api_key_placeholder" autocomplete="new-password">
+              <button type="button" id="msMergeFetchModelsBtn" class="btn-fetch">
+                <i class="fas fa-sync-alt" id="msMergeFetchIcon"></i>
+                <span data-i18n="fetch_models">Fetch</span>
+              </button>
+            </div>
+            <div id="msMergeFetchStatus" class="fetch-status"></div>
+          </div>
+
+          <div class="span2 multi-source-section multi-source-merge-ai setting-hidden">
+            <label class="s-label" for="msMergeModelInput" data-i18n="merge_model">Merge Model</label>
+            <select id="msMergeModelInput" class="s-select">
+              <option value="" data-i18n="model_default">— use server default —</option>
+            </select>
+          </div>
+
           <div class="span2 settings-section local-api-setting" data-i18n="local_api_transcription">Local API Transcription</div>
 
           <div class="span2 local-api-setting">
@@ -1503,6 +1659,7 @@
           <div class="prog-stage-elapsed" id="stageElapsed"></div>
         </div>
         <div class="stage-timeline" id="stageTimeline"></div>
+        <div class="source-status-panel" id="sourceStatusPanel"></div>
       </div>
 
       <!-- Results -->
@@ -1640,7 +1797,7 @@
 
   </main>
 
-<script src="/static/app.js?v=20260429-local-audio-upload"></script>
+<script src="/static/app.js?v=20260518-multi-source-gate"></script>
 </body>
 
 </html>

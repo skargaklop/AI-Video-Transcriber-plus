@@ -79,6 +79,20 @@ AGENT_MANIFEST = {
                     "values": ["none", "minimal", "low", "medium", "high", "xhigh"],
                     "default": "",
                 },
+                "--source": {
+                    "type": "string",
+                    "description": "Comma-separated transcription sources (platform,groq,local_whisper,local_parakeet)",
+                },
+                "--merge-mode": {
+                    "type": "enum",
+                    "values": ["system", "raw", "ai"],
+                    "default": "system",
+                    "description": "Merge mode for multi-source transcription",
+                },
+                "--merge-primary-source": {
+                    "type": "string",
+                    "description": "Primary source for system merge (e.g. local_whisper)",
+                },
             },
             "output_schema": {
                 "status": "string",
@@ -201,6 +215,7 @@ def _patch_broadcast(main_module) -> None:
         stage_code: str | None = None,
         stage_flow: str | None = None,
         stage_steps: list[dict[str, str]] | None = None,
+        source_statuses: list[dict[str, str]] | None = None,
     ) -> None:
         task = main_module.tasks[task_id]
         if status is not None:
@@ -215,6 +230,8 @@ def _patch_broadcast(main_module) -> None:
             task["stage_flow"] = stage_flow
         if stage_steps is not None:
             task["stage_steps"] = stage_steps
+        if source_statuses is not None:
+            task["source_statuses"] = source_statuses
         if stage_code is not None:
             task["stage_code"] = stage_code
 
@@ -316,6 +333,9 @@ async def _run_transcribe(args) -> dict:
     merge_model = getattr(args, "merge_model", "") or ""
     merge_prompt = getattr(args, "merge_prompt", "") or ""
     merge_reasoning_effort = getattr(args, "merge_reasoning_effort", "") or ""
+    source_csv = getattr(args, "source", "") or ""
+    merge_mode = getattr(args, "merge_mode", "") or ""
+    merge_primary_source = getattr(args, "merge_primary_source", "") or ""
 
     if not url and not file_path:
         return {"error": "Either --url or --file is required.", "exit_code": 2}
@@ -323,7 +343,11 @@ async def _run_transcribe(args) -> dict:
     if dual_local and provider != "local":
         provider = "local"
 
-    if provider == "groq" and not groq_api_key:
+    needs_groq_key = provider == "groq"
+    if source_csv:
+        source_list = [s.strip() for s in source_csv.split(",") if s.strip()]
+        needs_groq_key = "groq" in source_list
+    if needs_groq_key and not groq_api_key:
         return {
             "error": (
                 "Groq API key is required. Set it via:\n"
@@ -418,6 +442,9 @@ async def _run_transcribe(args) -> dict:
         merge_model=merge_model,
         merge_prompt=merge_prompt,
         merge_reasoning_effort=merge_reasoning_effort,
+        transcription_sources_raw=source_csv,
+        merge_mode_raw=merge_mode,
+        merge_primary_source=merge_primary_source,
     )
 
     task_data = backend_main.tasks.get(task_id, {})
@@ -705,6 +732,9 @@ def _add_transcribe_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--merge-model", default="", help="AI merge model name")
     p.add_argument("--merge-prompt", default="", help="AI merge prompt")
     p.add_argument("--merge-reasoning-effort", default="", choices=["", "none", "minimal", "low", "medium", "high", "xhigh"], help="AI merge reasoning effort")
+    p.add_argument("--source", default="", help="Comma-separated transcription sources (platform,groq,local_whisper,local_parakeet)")
+    p.add_argument("--merge-mode", default="", choices=["", "system", "raw", "ai"], help="Merge mode for multi-source (default: system)")
+    p.add_argument("--merge-primary-source", default="", help="Primary source for system merge (e.g. local_whisper)")
 
 
 def _add_summarize_source_args(p: argparse.ArgumentParser) -> None:

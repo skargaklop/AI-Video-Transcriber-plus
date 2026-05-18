@@ -38,14 +38,39 @@ from summarizer import Summarizer
 from transcript_formatting import format_transcript_without_timecodes
 from transcript_merge import (
     merge_transcripts_ai,
+    merge_transcripts_ai_n,
     merge_transcripts_deterministic,
+    merge_transcripts_deterministic_n,
     resolve_merge_credentials,
+    build_raw_bundle,
 )
 from settings import get_credential, get_masked_settings, save_settings
+from source_registry import (
+    SOURCE_DISPLAY_NAMES,
+    VALID_SOURCES,
+    normalize_source_result,
+    parse_transcription_sources,
+    resolve_merge_mode,
+    resolve_sources_from_legacy,
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def _resolve_primary(successful_sources, requested_primary, warnings):
+    """Resolve primary source for merge, warning if the requested one is unavailable."""
+    if requested_primary:
+        for sr in successful_sources:
+            if sr["source_id"] == requested_primary:
+                return requested_primary
+        warnings.append(
+            f"Primary source '{requested_primary}' was selected but failed or unavailable; "
+            f"using '{successful_sources[0]['source_id']}' instead."
+        )
+    return successful_sources[0]["source_id"]
+
 
 app = FastAPI(title="AI Video Transcriber", version="1.0.0")
 
@@ -98,6 +123,23 @@ def save_tasks(tasks_data):
         logger.error(f"Failed to save task state: {e}")
 
 
+def _mark_unfinished_source_statuses_failed(task: dict, detail: str) -> bool:
+    """Mark pending/running per-source statuses as failed when a task stops."""
+    statuses = task.get("source_statuses")
+    if not isinstance(statuses, list):
+        return False
+
+    changed = False
+    for source in statuses:
+        if not isinstance(source, dict):
+            continue
+        if source.get("status") in {"running", "pending"}:
+            source["status"] = "failed"
+            source["detail"] = detail
+            changed = True
+    return changed
+
+
 def _mark_incomplete_tasks_as_interrupted(tasks_data):
     """Mark persisted in-flight tasks as interrupted after app restart."""
     changed = False
@@ -112,7 +154,18 @@ def _mark_incomplete_tasks_as_interrupted(tasks_data):
             task["message"] = task_error
             task["stage_code"] = "error"
             task["stage_started_at"] = interrupted_at
+            _mark_unfinished_source_statuses_failed(task, task_error)
             changed = True
+        elif task.get("status") == "error":
+            changed = (
+                _mark_unfinished_source_statuses_failed(
+                    task,
+                    task.get("error")
+                    or task.get("message")
+                    or "Task failed before this source finished.",
+                )
+                or changed
+            )
 
         if task.get("summary_status") == "processing":
             task["summary_status"] = "error"
@@ -224,13 +277,45 @@ def _markdown_to_plain_text(markdown: str) -> str:
 
 
 def _extract_detected_language(transcript_text: str, fallback: str = "") -> str:
+    normalized_fallback = (fallback or "").strip()
     if not transcript_text:
-        return fallback or ""
+        return normalized_fallback
 
     for line in transcript_text.splitlines():
         if "**Detected Language:**" in line:
-            return line.split(":", 1)[-1].strip()
-    return fallback or ""
+            detected = line.split(":", 1)[-1].strip()
+            if detected and detected.lower() not in {"unknown", "auto", "auto-detect", "autodetect"}:
+                return detected
+            break
+
+    return normalized_fallback or _infer_language_from_text(transcript_text)
+
+
+def _infer_language_from_text(text: str) -> str:
+    """Best-effort script-based language fallback when a backend omits language."""
+    if not text:
+        return ""
+    cyrillic = sum(1 for ch in text if "\u0400" <= ch <= "\u04ff")
+    cjk = sum(1 for ch in text if "\u4e00" <= ch <= "\u9fff")
+    if cjk >= 2:
+        return "zh"
+    if cyrillic >= 2:
+        if any(ch in text for ch in "іїєґІЇЄҐ"):
+            return "uk"
+        return "ru"
+    return ""
+
+
+def _dedupe_messages(messages: list[str]) -> list[str]:
+    seen = set()
+    deduped: list[str] = []
+    for message in messages:
+        text = str(message).strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        deduped.append(text)
+    return deduped
 
 
 def _file_name_from_path(value: str) -> str:
@@ -276,6 +361,166 @@ def _format_groq_transcription_error(
     )
 
 
+def _build_groq_prompt(user_prompt: str = "", video_title: str = "") -> str:
+    """Add lightweight spelling context from the title to improve named entities."""
+    prompt_parts: list[str] = []
+    title = (video_title or "").strip()
+    if title and title.lower() != "unknown":
+        terms = _extract_title_glossary_terms(title)
+        if terms:
+            prompt_parts.append("Terms: " + "; ".join(terms) + ".")
+    custom_prompt = (user_prompt or "").strip()
+    if custom_prompt:
+        prompt_parts.append(custom_prompt)
+    return "\n\n".join(prompt_parts)
+
+
+def _extract_title_glossary_terms(video_title: str) -> list[str]:
+    """Extract compact model/name terms from a title for ASR spelling hints."""
+    title = (video_title or "").strip()
+    terms: list[str] = []
+
+    patterns = (
+        r"\bClaude\s+Opus\s+\d+(?:[.,]\d+)?\b",
+        r"\bGemini\s+\d+(?:[.,]\d+)?\s+Pro\b",
+        r"\bGPT[-\s]?\d+(?:[.,]\d+)?\b",
+        r"\bOpenRouter\b",
+        r"\bAPI\b",
+    )
+    for pattern in patterns:
+        for match in re.finditer(pattern, title, flags=re.IGNORECASE):
+            term = re.sub(r"\s+", " ", match.group(0)).strip()
+            term = re.sub(r"GPT\s+(\d)", r"GPT-\1", term, flags=re.IGNORECASE)
+            if term.upper().startswith("GPT"):
+                term = "GPT" + term[3:]
+            if term not in terms:
+                terms.append(term)
+
+    if not terms:
+        terms.append(title[:120])
+
+    return terms
+
+
+def _apply_title_entity_corrections(text: str, video_title: str = "") -> str:
+    """Normalize common ASR variants to exact model names present in the title."""
+    if not text:
+        return text
+
+    corrected = str(text)
+    title = video_title or ""
+
+    claude_match = re.search(
+        r"\bClaude\s+Opus\s+\d+(?:[.,]\d+)?\b",
+        title,
+        flags=re.IGNORECASE,
+    )
+    if claude_match:
+        canonical_claude = re.sub(r"\s+", " ", claude_match.group(0)).strip()
+        canonical_claude = re.sub(r"(\d),(\d)", r"\1.\2", canonical_claude)
+        canonical_claude_base = re.sub(
+            r"\s+\d+(?:[.,]\d+)?$",
+            "",
+            canonical_claude,
+            flags=re.IGNORECASE,
+        )
+        corrected = re.sub(
+            r"\b(?:Clot|Cloud|Cloude)\s+Opus\s+\d+(?:[.,]\d+)?\b",
+            canonical_claude,
+            corrected,
+            flags=re.IGNORECASE,
+        )
+        corrected = re.sub(
+            r"\b(?:Clot|Cloud|Cloude)\s+Opus\b",
+            canonical_claude_base,
+            corrected,
+            flags=re.IGNORECASE,
+        )
+        corrected = re.sub(
+            r"\bКлод\s+Опус\s+\d+(?:[.,]\d+)?\b",
+            canonical_claude,
+            corrected,
+            flags=re.IGNORECASE,
+        )
+        corrected = re.sub(
+            r"\bКлод\s+Опус\b",
+            canonical_claude_base,
+            corrected,
+            flags=re.IGNORECASE,
+        )
+
+    gemini_match = re.search(
+        r"\bGemini\s+\d+(?:[.,]\d+)?\s+Pro\b",
+        title,
+        flags=re.IGNORECASE,
+    )
+    if gemini_match:
+        canonical_gemini = re.sub(r"\s+", " ", gemini_match.group(0)).strip()
+        canonical_gemini = re.sub(r"(\d),(\d)", r"\1.\2", canonical_gemini)
+        corrected = re.sub(
+            r"\b(?:GMini|GMI|GME|GM)\s*3[.,]?\s*1\s+Pro\b",
+            canonical_gemini,
+            corrected,
+            flags=re.IGNORECASE,
+        )
+        corrected = re.sub(
+            r"\b(?:GMini|GMI|GME)\b",
+            "Gemini",
+            corrected,
+            flags=re.IGNORECASE,
+        )
+        corrected = re.sub(
+            r"\bGM\s+31\s+Pro\b",
+            canonical_gemini,
+            corrected,
+            flags=re.IGNORECASE,
+        )
+
+    gpt_match = re.search(r"\bGPT[-\s]?\d+(?:[.,]\d+)?\b", title, flags=re.IGNORECASE)
+    if gpt_match:
+        canonical_gpt = re.sub(r"GPT\s+", "GPT-", gpt_match.group(0), flags=re.IGNORECASE)
+        canonical_gpt = re.sub(r"(\d),(\d)", r"\1.\2", canonical_gpt)
+        canonical_gpt = "GPT" + canonical_gpt[3:]
+        corrected = re.sub(
+            r"\b(?:GBT|GPT)\s*-?\s*5[.,]\s*5\b",
+            canonical_gpt,
+            corrected,
+            flags=re.IGNORECASE,
+        )
+        corrected = re.sub(
+            r"\bGepit[-\s]?55\b",
+            canonical_gpt,
+            corrected,
+            flags=re.IGNORECASE,
+        )
+        corrected = re.sub(
+            r"\bGPT5\b",
+            canonical_gpt.split(".")[0],
+            corrected,
+            flags=re.IGNORECASE,
+        )
+
+    return corrected
+
+
+def _apply_title_entity_corrections_to_result(result: dict, video_title: str = "") -> dict:
+    """Apply title-name normalization to markdown and raw segment text."""
+    if not result:
+        return result
+
+    result["markdown"] = _apply_title_entity_corrections(
+        str(result.get("markdown") or ""), video_title
+    )
+    raw = result.get("raw")
+    if isinstance(raw, dict) and isinstance(raw.get("segments"), list):
+        for segment in raw["segments"]:
+            if isinstance(segment, dict) and segment.get("text"):
+                segment["text"] = _apply_title_entity_corrections(
+                    str(segment.get("text") or ""), video_title
+                )
+    return result
+
+
 def _is_groq_error_eligible_for_local_fallback(error: Exception) -> bool:
     message = str(error).strip().lower()
     non_fallback_patterns = (
@@ -304,6 +549,73 @@ def _make_stage_steps(*codes: str) -> list[dict[str, str]]:
     return [{"code": code} for code in codes]
 
 
+def _build_source_statuses(
+    selected_sources: list[str],
+    results: list[dict] | None = None,
+    running_sources: list[str] | tuple[str, ...] | set[str] | None = None,
+) -> list[dict[str, str]]:
+    result_by_source = {
+        result.get("source_id"): result
+        for result in (results or [])
+        if result.get("source_id")
+    }
+    running = set(running_sources or [])
+    statuses: list[dict[str, str]] = []
+
+    for source_id in selected_sources:
+        result = result_by_source.get(source_id)
+        detail = ""
+        if result:
+            raw_status = result.get("status", "")
+            if raw_status == "success":
+                status = "completed"
+            elif raw_status == "error":
+                status = "failed"
+                detail = "; ".join(result.get("errors") or [])
+            else:
+                status = raw_status or "pending"
+        elif source_id in running:
+            status = "running"
+        else:
+            status = "pending"
+
+        statuses.append(
+            {
+                "source_id": source_id,
+                "label": SOURCE_DISPLAY_NAMES.get(
+                    source_id, source_id.replace("_", " ").title()
+                ),
+                "status": status,
+                "detail": detail,
+            }
+        )
+
+    return statuses
+
+
+def _format_multi_source_summary(successful_sources: list[dict]) -> str:
+    parts: list[str] = []
+    for source in successful_sources:
+        source_id = source.get("source_id", "")
+        label = source.get("display_name") or SOURCE_DISPLAY_NAMES.get(
+            source_id, source_id.replace("_", " ").title()
+        )
+        model = str(source.get("model") or "").strip()
+        parts.append(f"{label} ({model})" if model else label)
+    return " + ".join(parts)
+
+
+def _format_multi_source_label(merge_mode: str, source_summary: str) -> str:
+    prefix_by_mode = {
+        "ai": "AI-merged multi-source transcription",
+        "deterministic": "System-merged multi-source transcription",
+        "single_source": "Single-source transcription",
+        "raw": "Raw multi-source bundle",
+    }
+    label = prefix_by_mode.get(merge_mode, "Multi-source transcription")
+    return f"{label} ({source_summary})" if source_summary else label
+
+
 def _compute_stage_position(
     stage_steps: list[dict[str, str]] | None, stage_code: str | None
 ) -> tuple[int | None, int | None]:
@@ -329,6 +641,7 @@ async def _push_task_update(
     stage_code: str | None = None,
     stage_flow: str | None = None,
     stage_steps: list[dict[str, str]] | None = None,
+    source_statuses: list[dict[str, str]] | None = None,
 ) -> None:
     task = tasks[task_id]
     previous_stage = task.get("stage_code")
@@ -345,6 +658,12 @@ async def _push_task_update(
         task["stage_flow"] = stage_flow
     if stage_steps is not None:
         task["stage_steps"] = stage_steps
+    if source_statuses is not None:
+        task["source_statuses"] = source_statuses
+    elif status == "error":
+        _mark_unfinished_source_statuses_failed(
+            task, error or message or "Task failed before this source finished."
+        )
     if stage_code is not None:
         task["stage_code"] = stage_code
         if stage_code != previous_stage:
@@ -595,6 +914,9 @@ async def process_video(
     merge_model: str = Form(default=""),
     merge_prompt: str = Form(default=""),
     merge_reasoning_effort: str = Form(default=""),
+    transcription_sources: str = Form(default=""),
+    merge_mode: str = Form(default=""),
+    merge_primary_source: str = Form(default=""),
 ):
     """
     Process video URL, return transcription task ID. Summary is generated at a separate endpoint upon user confirmation.
@@ -656,6 +978,12 @@ async def process_video(
         merge_prompt = ""
     if not isinstance(merge_reasoning_effort, str):
         merge_reasoning_effort = ""
+    if not isinstance(transcription_sources, str):
+        transcription_sources = ""
+    if not isinstance(merge_mode, str):
+        merge_mode = ""
+    if not isinstance(merge_primary_source, str):
+        merge_primary_source = ""
     if not isinstance(model_id, str):
         model_id = ""
     if not isinstance(summary_language, str):
@@ -738,6 +1066,7 @@ async def process_video(
             "local_backend_used": None,
             "local_model_used": None,
             "used_local_fallback": False,
+            "transcription_sources": transcription_sources if transcription_sources.strip() else "",
             "warnings": [],
             "summary": None,
             "summary_status": "idle",
@@ -789,6 +1118,9 @@ async def process_video(
                 merge_model=merge_model,
                 merge_prompt=merge_prompt,
                 merge_reasoning_effort=merge_reasoning_effort,
+                transcription_sources_raw=transcription_sources,
+                merge_mode_raw=merge_mode,
+                merge_primary_source=merge_primary_source,
                 summary_api_key=api_key,
                 summary_base_url=model_base_url,
                 summary_model=model_id,
@@ -844,6 +1176,9 @@ async def process_video_task(
     merge_model: str = "",
     merge_prompt: str = "",
     merge_reasoning_effort: str = "",
+    transcription_sources_raw: str = "",
+    merge_mode_raw: str = "",
+    merge_primary_source: str = "",
     summary_api_key: str = "",
     summary_base_url: str = "",
     summary_model: str = "",
@@ -869,34 +1204,81 @@ async def process_video_task(
         if normalized_local_backend not in {"whisper", "parakeet"}:
             raise Exception(f"Unsupported local backend: {local_backend}")
 
-        is_dual_mode = bool(dual_local_transcription)
-        if is_dual_mode:
-            if requested_provider != "local":
-                raise Exception(
-                    "Dual local transcription requires transcription_provider=local."
-                )
-            if merge_use_ai:
-                preflight_creds = resolve_merge_credentials(
-                    form_merge_api_key=merge_api_key,
-                    form_merge_base_url=merge_base_url,
-                    form_merge_model=merge_model,
-                    form_merge_prompt=merge_prompt,
-                    form_merge_reasoning_effort=merge_reasoning_effort,
-                    form_summary_api_key=summary_api_key,
-                    form_summary_base_url=summary_base_url,
-                    form_summary_model=summary_model,
-                )
-                if not preflight_creds["api_key"]:
-                    raise Exception(
-                        "AI merge was requested but no API key could be resolved. "
-                        "Provide a merge API key or a summary API key, or set "
-                        "OPENAI_API_KEY / MERGE_API_KEY."
-                    )
+        # Resolve transcription sources: new multi-source or legacy provider/dual.
+        # Hidden/stale UI fields can submit dual_local_transcription=true even
+        # when the visible provider is Groq; only honor it for the Local provider.
+        effective_dual_local = bool(dual_local_transcription) and requested_provider == "local"
+        multi_sources = []
+        effective_merge_mode = "system"
+        if transcription_sources_raw and transcription_sources_raw.strip():
+            try:
+                multi_sources = parse_transcription_sources(transcription_sources_raw)
+            except ValueError as e:
+                raise Exception(str(e))
+            effective_merge_mode = resolve_merge_mode(merge_use_ai, merge_mode_raw)
+        elif effective_dual_local:
+            multi_sources = ["local_whisper", "local_parakeet"]
+            effective_merge_mode = resolve_merge_mode(merge_use_ai, merge_mode_raw)
+        else:
+            multi_sources = resolve_sources_from_legacy(
+                transcription_provider=requested_provider,
+                dual_local_transcription=False,
+                local_backend=normalized_local_backend,
+            )
+            effective_merge_mode = "system"
 
+        if not multi_sources:
+            raise Exception("No transcription sources selected.")
+
+        is_new_style_source = bool(transcription_sources_raw and transcription_sources_raw.strip())
+        is_multi_source = len(multi_sources) > 1 and is_new_style_source
+        _effective_merge_primary = (merge_primary_source or "").strip().lower()
+        if is_multi_source and effective_merge_mode == "system" and not _effective_merge_primary:
+            raise Exception(
+                "A primary source is required for system merge when multiple transcription sources are selected."
+            )
+        if (
+            is_multi_source
+            and effective_merge_mode == "system"
+            and _effective_merge_primary
+            and _effective_merge_primary not in multi_sources
+        ):
+            raise Exception(
+                "Primary source must be one of the selected transcription sources."
+            )
+
+        is_dual_mode = effective_dual_local and not is_new_style_source
+        if is_multi_source and effective_merge_mode == "ai":
+            preflight_creds = resolve_merge_credentials(
+                form_merge_api_key=merge_api_key,
+                form_merge_base_url=merge_base_url,
+                form_merge_model=merge_model,
+                form_merge_prompt=merge_prompt,
+                form_merge_reasoning_effort=merge_reasoning_effort,
+                form_summary_api_key=summary_api_key,
+                form_summary_base_url=summary_base_url,
+                form_summary_model=summary_model,
+            )
+            if not preflight_creds["api_key"]:
+                raise Exception(
+                    "AI merge was requested but no API key could be resolved. "
+                    "Provide a merge API key or a summary API key, or set "
+                    "OPENAI_API_KEY / MERGE_API_KEY."
+                )
+
+        explicit_platform_source = (
+            is_new_style_source
+            and "platform" in multi_sources
+            and not using_uploaded_file
+        )
         should_try_subtitles = bool(try_subtitles_first) and not using_uploaded_file
-        if is_dual_mode:
+        if explicit_platform_source:
+            should_try_subtitles = True
+        elif is_multi_source and "platform" not in multi_sources:
             should_try_subtitles = False
-        if skip_subtitles is not None:
+        elif is_dual_mode:
+            should_try_subtitles = False
+        if skip_subtitles is not None and not explicit_platform_source:
             should_try_subtitles = (not skip_subtitles) and not using_uploaded_file
 
         normalized_local_language = (local_language or "").strip()
@@ -1043,8 +1425,14 @@ async def process_video_task(
         local_backend_used = None
         local_model_used = None
         used_local_fallback_flag = False
+        multi_source_results: list[dict] = []
+        _ms_video_title: list[str] = [display_source_title or sub_title or "unknown"]
+        multi_source_merge_strategy = ""
 
-        if subtitle_text:
+        is_single_new_style = is_new_style_source and len(multi_sources) == 1
+        single_source_id = multi_sources[0] if is_single_new_style else None
+
+        if subtitle_text and not is_multi_source and not is_single_new_style:
             video_title = sub_title or "unknown"
             raw_script = subtitle_text
             detected_language = sub_lang or _extract_detected_language(raw_script)
@@ -1060,6 +1448,530 @@ async def process_video_task(
                 ),
                 stage_code="saving_transcript",
             )
+        elif is_multi_source:
+            ms_stage_steps = _make_stage_steps(
+                *(["checking_subtitles"] if ("platform" in multi_sources and not using_uploaded_file) else ["subtitle_skipped"]),
+                *(
+                    ["reading_uploaded_audio"]
+                    if using_uploaded_file
+                    else ["downloading_audio"]
+                ),
+                "preparing_audio",
+                "transcribing_local_audio",
+                "saving_transcript",
+                "completed",
+            )
+            await _push_task_update(
+                task_id,
+                progress=10,
+                message=f"Multi-source transcription ({', '.join(multi_sources)}): preparing...",
+                stage_flow="multi_source",
+                stage_steps=ms_stage_steps,
+                stage_code=(
+                    "reading_uploaded_audio"
+                    if using_uploaded_file
+                    else (
+                        "checking_subtitles"
+                        if ("platform" in multi_sources and not using_uploaded_file)
+                        else "downloading_audio"
+                    )
+                ),
+                source_statuses=_build_source_statuses(
+                    multi_sources,
+                    running_sources=(
+                        ["platform"]
+                        if "platform" in multi_sources and not using_uploaded_file
+                        else []
+                    ),
+                ),
+            )
+
+            # Record platform result
+            if "platform" in multi_sources:
+                if subtitle_text:
+                    platform_result = normalize_source_result(
+                        "platform",
+                        result=_apply_title_entity_corrections_to_result(
+                            {"markdown": subtitle_text, "language": sub_lang or ""},
+                            _ms_video_title[0],
+                        ),
+                    )
+                    multi_source_results.append(platform_result)
+                else:
+                    platform_result = normalize_source_result(
+                        "platform",
+                        error="Platform subtitles requested but none found.",
+                    )
+                    multi_source_results.append(platform_result)
+
+            # Prepare audio for non-platform sources
+            non_platform_sources = [s for s in multi_sources if s != "platform"]
+            audio_path = source_file_path
+            backend_audio_files: list[str] = []
+
+            if non_platform_sources:
+                try:
+                    if using_uploaded_file:
+                        _ms_video_title[0] = display_source_title or sub_title or "unknown"
+                    else:
+                        audio_path, dl_title = await video_processor.download_and_convert(
+                            url, TEMP_DIR
+                        )
+                        if dl_title:
+                            _ms_video_title[0] = dl_title
+
+                    await _push_task_update(
+                        task_id, progress=25,
+                        message="Preparing audio for multi-source transcription...",
+                        stage_code="preparing_audio",
+                        source_statuses=_build_source_statuses(
+                            multi_sources, multi_source_results
+                        ),
+                    )
+
+                    # Prepare audio files per backend type
+                    needed_backends = set()
+                    for s in non_platform_sources:
+                        if s == "local_whisper":
+                            needed_backends.add("whisper")
+                        elif s == "local_parakeet":
+                            needed_backends.add("parakeet")
+                    # groq uses the raw audio path
+
+                    audio_for_source: dict[str, str] = {}
+                    for s in non_platform_sources:
+                        if s in ("local_whisper", "local_parakeet"):
+                            backend = "whisper" if s == "local_whisper" else "parakeet"
+                            prepped = ensure_backend_audio_file(audio_path, backend, TEMP_DIR)
+                            audio_for_source[s] = prepped
+                            backend_audio_files.append(prepped)
+                        else:
+                            audio_for_source[s] = audio_path
+
+                    if audio_path not in backend_audio_files:
+                        backend_audio_files.append(audio_path)
+
+                    await _push_task_update(
+                        task_id, progress=40,
+                        message=f"Running {len(non_platform_sources)} transcription source(s)...",
+                        stage_code="transcribing_local_audio",
+                        source_statuses=_build_source_statuses(
+                            multi_sources,
+                            multi_source_results,
+                            running_sources=non_platform_sources,
+                        ),
+                    )
+
+                    # Build coroutines for each source
+                    async def _run_source(source_id: str) -> tuple[str, dict | None, str | None]:
+                        try:
+                            if source_id == "groq":
+                                if not groq_api_key.strip():
+                                    return source_id, None, "Groq API key is required."
+                                groq = GroqURLTranscriber(api_key=groq_api_key, model=groq_model)
+                                if hasattr(groq, "transcribe_file"):
+                                    result = await groq.transcribe_file(
+                                        audio_for_source[source_id],
+                                        language=groq_language.strip(),
+                                        prompt=_build_groq_prompt(groq_prompt, _ms_video_title[0]),
+                                    )
+                                else:
+                                    audio_info = await video_processor.extract_audio_url(url)
+                                    if audio_info.get("title"):
+                                        _ms_video_title[0] = audio_info["title"]
+                                    result = await groq.transcribe_url(
+                                        audio_info["audio_url"],
+                                        language=groq_language.strip(),
+                                        prompt=_build_groq_prompt(groq_prompt, _ms_video_title[0]),
+                                    )
+                                return source_id, result, None
+
+                            elif source_id in ("local_whisper", "local_parakeet"):
+                                if source_id == "local_whisper":
+                                    backend = "whisper"
+                                    preset = dual_whisper_model_preset or local_model_preset
+                                    mid = dual_whisper_model_id
+                                else:
+                                    backend = "parakeet"
+                                    preset = dual_parakeet_model_preset
+                                    mid = dual_parakeet_model_id
+                                t, resolved = await asyncio.to_thread(
+                                    prepare_local_transcriber, backend, preset, mid
+                                )
+                                lang = normalized_local_language
+                                result = await t.transcribe(audio_for_source[source_id], language=lang)
+                                result["_resolved_model"] = resolved
+                                return source_id, result, None
+
+                            return source_id, None, f"Unknown source: {source_id}"
+                        except Exception as e:
+                            return source_id, None, str(e)
+
+                    source_tasks = [
+                        asyncio.create_task(_run_source(s))
+                        for s in non_platform_sources
+                    ]
+                    running_source_ids = set(non_platform_sources)
+                    completed_count = 0
+                    total_sources = max(1, len(non_platform_sources))
+
+                    for completed in asyncio.as_completed(source_tasks):
+                        gr = await completed
+                        completed_count += 1
+                        if isinstance(gr, Exception):
+                            warnings.append(f"Source failed: {gr}")
+                            continue
+                        src_id, result, error = gr
+                        if error:
+                            sr = normalize_source_result(src_id, error=error)
+                            warnings.append(f"{src_id} failed: {error}")
+                        else:
+                            result = _apply_title_entity_corrections_to_result(
+                                result, _ms_video_title[0]
+                            )
+                            sr = normalize_source_result(src_id, result=result)
+                        multi_source_results.append(sr)
+                        running_source_ids.discard(src_id)
+                        await _push_task_update(
+                            task_id,
+                            progress=40 + int((completed_count / total_sources) * 35),
+                            message=(
+                                f"Running {len(running_source_ids)} transcription "
+                                f"source(s); {completed_count}/{total_sources} finished..."
+                            ),
+                            stage_code="transcribing_local_audio",
+                            source_statuses=_build_source_statuses(
+                                multi_sources,
+                                multi_source_results,
+                                running_sources=running_source_ids,
+                            ),
+                        )
+                finally:
+                    for candidate in set(backend_audio_files):
+                        if candidate and Path(candidate).exists():
+                            try:
+                                Path(candidate).unlink(missing_ok=True)
+                            except Exception:
+                                logger.debug("Could not remove multi-source temp file: %s", candidate)
+
+            if multi_source_results:
+                source_order = {source_id: index for index, source_id in enumerate(multi_sources)}
+                multi_source_results.sort(
+                    key=lambda result: source_order.get(result.get("source_id"), len(source_order))
+                )
+
+            successful_sources = [r for r in multi_source_results if r["status"] == "success"]
+            failed_sources = [r for r in multi_source_results if r["status"] == "error"]
+
+            if not successful_sources:
+                errors_detail = "; ".join(
+                    f"{r['source_id']}: {'; '.join(r['errors'])}" for r in failed_sources
+                )
+                raise Exception(f"All selected transcription sources failed. {errors_detail}")
+
+            for r in multi_source_results:
+                warnings.extend(r.get("warnings") or [])
+
+            # Determine final output based on merge mode
+            if effective_merge_mode == "raw":
+                await _push_task_update(
+                    task_id, progress=88,
+                    message="Building raw bundle...",
+                    stage_code="saving_transcript",
+                    source_statuses=_build_source_statuses(
+                        multi_sources, multi_source_results
+                    ),
+                )
+                short_id = task_id.replace("-", "")[:6]
+                safe_title_ms = _sanitize_title_for_filename(_ms_video_title[0])
+
+                for sr in successful_sources:
+                    fname = f"{sr['source_id']}_{safe_title_ms}_{short_id}.md"
+                    async with aiofiles.open(TEMP_DIR / fname, "w", encoding="utf-8") as f:
+                        await f.write(sr.get("markdown", ""))
+                    sr["artifact_filename"] = fname
+
+                bundle = build_raw_bundle(
+                    multi_source_results, multi_sources, warnings
+                )
+                raw_script = bundle["report_markdown"]
+                detected_language = successful_sources[0].get("language", "") or _extract_detected_language(raw_script)
+                transcript_source = "raw_bundle"
+                transcription_provider_used = "multi_source"
+                local_backend_used = "multi"
+                local_model_used = _format_multi_source_summary(successful_sources)
+                multi_source_merge_strategy = "raw"
+                video_title = _ms_video_title[0]
+
+                dual_metadata = {
+                    "sources": [r["source_id"] for r in multi_source_results],
+                    "successful": [r["source_id"] for r in successful_sources],
+                    "failed": [r["source_id"] for r in failed_sources],
+                    "merge_mode": "raw",
+                    "source_summary": local_model_used,
+                    "artifacts": bundle["artifacts"],
+                }
+
+            else:
+                # system or ai merge
+                merge_creds = resolve_merge_credentials(
+                    form_merge_api_key=merge_api_key,
+                    form_merge_base_url=merge_base_url,
+                    form_merge_model=merge_model,
+                    form_merge_prompt=merge_prompt,
+                    form_merge_reasoning_effort=merge_reasoning_effort,
+                    form_summary_api_key=summary_api_key,
+                    form_summary_base_url=summary_base_url,
+                    form_summary_model=summary_model,
+                )
+
+                # Write per-source sidecar files
+                short_id = task_id.replace("-", "")[:6]
+                safe_title_ms = _sanitize_title_for_filename(_ms_video_title[0])
+                for sr in successful_sources:
+                    fname = f"{sr['source_id']}_{safe_title_ms}_{short_id}.md"
+                    async with aiofiles.open(TEMP_DIR / fname, "w", encoding="utf-8") as f:
+                        await f.write(sr.get("markdown", ""))
+                    sr["artifact_filename"] = fname
+
+                if len(successful_sources) == 1:
+                    merge_result = {"markdown": successful_sources[0].get("markdown", ""), "stats": {}}
+                    merge_strategy = "single_source"
+                    if _effective_merge_primary and _effective_merge_primary != successful_sources[0]["source_id"]:
+                        warnings.append(
+                            f"Primary source '{_effective_merge_primary}' was selected but failed or unavailable; "
+                            f"using '{successful_sources[0]['source_id']}' instead."
+                        )
+                elif effective_merge_mode == "ai" and merge_creds["api_key"]:
+                    try:
+                        merge_result = await merge_transcripts_ai_n(
+                            successful_sources,
+                            api_key=merge_creds["api_key"],
+                            base_url=merge_creds["base_url"],
+                            model=merge_creds["model"],
+                            prompt=merge_creds["prompt"],
+                            reasoning_effort=merge_creds["reasoning_effort"],
+                        )
+                        merge_strategy = "ai"
+                    except Exception as ai_err:
+                        logger.warning("AI merge failed, falling back to deterministic: %s", ai_err)
+                        warnings.append(f"AI merge failed ({ai_err}); used deterministic merge.")
+                        primary = _resolve_primary(successful_sources, _effective_merge_primary, warnings)
+                        merge_result = merge_transcripts_deterministic_n(successful_sources, primary)
+                        merge_strategy = "deterministic"
+                else:
+                    primary = _resolve_primary(successful_sources, _effective_merge_primary, warnings)
+                    merge_result = merge_transcripts_deterministic_n(successful_sources, primary)
+                    merge_strategy = "deterministic"
+                    if effective_merge_mode == "ai":
+                        warnings.append("AI merge requested but no credentials provided; used deterministic merge instead.")
+
+                await _push_task_update(
+                    task_id, progress=88,
+                    message="Saving multi-source transcription files...",
+                    stage_code="saving_transcript",
+                    source_statuses=_build_source_statuses(
+                        multi_sources, multi_source_results
+                    ),
+                )
+
+                raw_script = merge_result["markdown"]
+                detected_language = successful_sources[0].get("language", "") or _extract_detected_language(raw_script)
+                transcript_source = "multi_source_merged"
+                transcription_provider_used = "multi_source"
+                local_backend_used = "multi"
+                local_model_used = _format_multi_source_summary(successful_sources)
+                multi_source_merge_strategy = merge_strategy
+                video_title = _ms_video_title[0]
+
+                dual_metadata = {
+                    "sources": [r["source_id"] for r in multi_source_results],
+                    "successful": [r["source_id"] for r in successful_sources],
+                    "failed": [r["source_id"] for r in failed_sources],
+                    "merge_mode": merge_strategy,
+                    "source_summary": local_model_used,
+                    "merge_stats": merge_result.get("stats", {}),
+                    "artifacts": {sr["source_id"]: sr["artifact_filename"] for sr in successful_sources if sr.get("artifact_filename")},
+                }
+
+                if failed_sources:
+                    warnings.extend(f"{r['source_id']} failed: {'; '.join(r.get('errors', []))}" for r in failed_sources)
+
+        elif is_single_new_style:
+            # Single source selected via new API (transcription_sources_raw)
+            src_id = single_source_id
+            src_result = None
+
+            if src_id == "platform":
+                if subtitle_text:
+                    video_title = sub_title or "unknown"
+                    _ms_video_title[0] = video_title
+                    src_result = normalize_source_result(
+                        "platform",
+                        result=_apply_title_entity_corrections_to_result(
+                            {"markdown": subtitle_text, "language": sub_lang or ""},
+                            _ms_video_title[0],
+                        ),
+                    )
+                    transcription_provider_used = "platform"
+                else:
+                    raise Exception("Platform subtitles requested but none found.")
+            else:
+                # Non-platform single source: download audio and transcribe
+                ss_stage_steps = _make_stage_steps(
+                    *(
+                        ["reading_uploaded_audio"]
+                        if using_uploaded_file
+                        else ["downloading_audio"]
+                    ),
+                    "preparing_audio",
+                    "transcribing_local_audio",
+                    "saving_transcript",
+                    "completed",
+                )
+                await _push_task_update(
+                    task_id, progress=10,
+                    message=f"Single-source transcription ({src_id}): preparing...",
+                    stage_flow="multi_source",
+                    stage_steps=ss_stage_steps,
+                    stage_code=(
+                        "reading_uploaded_audio" if using_uploaded_file else "downloading_audio"
+                    ),
+                )
+
+                audio_path = source_file_path
+                if using_uploaded_file:
+                    _ms_video_title[0] = display_source_title or "unknown"
+                else:
+                    audio_path, dl_title = await video_processor.download_and_convert(url, TEMP_DIR)
+                    if dl_title:
+                        _ms_video_title[0] = dl_title
+
+                await _push_task_update(
+                    task_id, progress=25,
+                    message=f"Preparing audio for {src_id}...",
+                    stage_code="preparing_audio",
+                )
+
+                src_result = None
+                if src_id == "groq":
+                    if not groq_api_key:
+                        raise Exception("Groq source selected but no API key provided.")
+                    groq_transcriber = GroqURLTranscriber(groq_api_key, groq_model)
+                    if using_uploaded_file or hasattr(groq_transcriber, "transcribe_file"):
+                        groq_result = await groq_transcriber.transcribe_file(
+                            audio_path,
+                            language=groq_language,
+                            prompt=_build_groq_prompt(groq_prompt, _ms_video_title[0]),
+                        )
+                    else:
+                        extract = await video_processor.extract_audio_url(url)
+                        groq_url = extract.get("audio_url", "")
+                        if extract.get("title"):
+                            _ms_video_title[0] = extract["title"]
+                        groq_result = await groq_transcriber.transcribe_url(
+                            groq_url,
+                            language=groq_language,
+                            prompt=_build_groq_prompt(groq_prompt, _ms_video_title[0]),
+                        )
+                    src_result = normalize_source_result(
+                        "groq",
+                        result=_apply_title_entity_corrections_to_result(
+                            {
+                                "markdown": groq_result.get("markdown", ""),
+                                "language": groq_result.get("language", ""),
+                                "raw": groq_result.get("raw", {}),
+                            },
+                            _ms_video_title[0],
+                        ),
+                    )
+                    local_model_used = groq_model or "whisper-large-v3"
+                    transcription_provider_used = "groq"
+                    if audio_path and Path(audio_path).exists():
+                        try:
+                            Path(audio_path).unlink(missing_ok=True)
+                        except Exception:
+                            pass
+                elif src_id in ("local_whisper", "local_parakeet"):
+                    backend = "whisper" if src_id == "local_whisper" else "parakeet"
+                    prepped = ensure_backend_audio_file(audio_path, backend, TEMP_DIR)
+                    try:
+                        preset = local_model_preset
+                        mid = ""
+                        if src_id == "local_whisper":
+                            preset = dual_whisper_model_preset or local_model_preset
+                            mid = dual_whisper_model_id
+                        else:
+                            preset = dual_parakeet_model_preset
+                            mid = dual_parakeet_model_id
+                        transcriber, resolved = await asyncio.to_thread(
+                            prepare_local_transcriber, backend, preset, mid
+                        )
+                        local_result = await transcriber.transcribe(
+                            prepped, language=normalized_local_language.strip()
+                        )
+                        src_result = normalize_source_result(
+                            src_id,
+                            result=_apply_title_entity_corrections_to_result(
+                                {
+                                    "markdown": local_result.get("markdown", ""),
+                                    "language": local_result.get("language", ""),
+                                    "raw": local_result.get("raw", {}),
+                                },
+                                _ms_video_title[0],
+                            ),
+                        )
+                        local_model_used = resolved
+                        local_backend_used = backend
+                        transcription_provider_used = "local"
+                    finally:
+                        if prepped and Path(prepped).exists():
+                            try:
+                                Path(prepped).unlink(missing_ok=True)
+                            except Exception:
+                                pass
+                        if audio_path and Path(audio_path).exists() and audio_path != source_file_path:
+                            try:
+                                Path(audio_path).unlink(missing_ok=True)
+                            except Exception:
+                                pass
+                else:
+                    raise Exception(f"Unsupported single source: {src_id}")
+
+                if src_id != "platform":
+                    await _push_task_update(
+                        task_id, progress=88,
+                        message="Saving transcription...",
+                        stage_code="saving_transcript",
+                    )
+
+            if src_result is None:
+                raise Exception(f"Single source '{src_id}' returned no transcript result.")
+
+            video_title = _ms_video_title[0] or video_title
+            if effective_merge_mode == "raw":
+                short_id = task_id.replace("-", "")[:6]
+                safe_title_ms = _sanitize_title_for_filename(video_title)
+                artifact_name = f"{src_result['source_id']}_{safe_title_ms}_{short_id}.md"
+                async with aiofiles.open(
+                    TEMP_DIR / artifact_name, "w", encoding="utf-8"
+                ) as f:
+                    await f.write(src_result.get("markdown", ""))
+                src_result["artifact_filename"] = artifact_name
+                multi_source_results = [src_result]
+                bundle = build_raw_bundle(multi_source_results, [src_id], warnings)
+                raw_script = bundle["report_markdown"]
+                transcript_source = "raw_bundle"
+            else:
+                raw_script = src_result.get("markdown", "")
+                transcript_source = (
+                    subtitle_source or "youtube_manual_subtitles"
+                    if src_id == "platform"
+                    else src_id
+                )
+
+            detected_language = src_result.get("language", "") or _extract_detected_language(raw_script)
+
         elif is_dual_mode and requested_provider == "local":
             dual_stage_steps = _make_stage_steps(
                 "subtitle_skipped",
@@ -1401,7 +2313,9 @@ async def process_video_task(
                     groq_result = await groq.transcribe_file(
                         source_file_path,
                         language=groq_language.strip(),
-                        prompt=groq_prompt.strip(),
+                        prompt=_build_groq_prompt(
+                            groq_prompt, display_source_title or video_title
+                        ),
                     )
                     transcript_source = "groq_audio_file"
                 else:
@@ -1447,7 +2361,7 @@ async def process_video_task(
                             groq_result = await groq.transcribe_url(
                                 audio_info["audio_url"],
                                 language=groq_language.strip(),
-                                prompt=groq_prompt.strip(),
+                                prompt=_build_groq_prompt(groq_prompt, video_title),
                             )
                             break
                         except GroqTranscriptionError as e:
@@ -1509,7 +2423,7 @@ async def process_video_task(
                             groq_result = await groq.transcribe_file(
                                 audio_file,
                                 language=groq_language.strip(),
-                                prompt=groq_prompt.strip(),
+                                prompt=_build_groq_prompt(groq_prompt, video_title),
                             )
                             transcript_source = "groq_audio_file"
                         except Exception as file_error:
@@ -1616,6 +2530,8 @@ async def process_video_task(
                 ) or _extract_detected_language(raw_script, groq_language)
                 transcription_provider_used = "groq"
 
+        raw_script = _apply_title_entity_corrections(raw_script or "", video_title)
+
         if not include_timecodes:
             raw_script = format_transcript_without_timecodes(raw_script)
 
@@ -1651,8 +2567,13 @@ async def process_video_task(
                 if local_backend_used == "dual"
                 else "Dual local transcription"
             ),
+            "multi_source_merged": _format_multi_source_label(
+                multi_source_merge_strategy, local_model_used or ""
+            ),
+            "raw_bundle": f"Raw bundle ({len(multi_source_results)} sources)",
         }
         source_label = source_labels.get(transcript_source, transcript_source)
+        warnings = _dedupe_messages(warnings)
         warning_block = ""
         if warnings:
             warning_block = "**Warnings:** " + " | ".join(warnings) + "\n\n"
@@ -1709,6 +2630,11 @@ async def process_video_task(
         }
         if is_dual_mode and locals().get("dual_metadata"):
             task_result["dual_transcription_results"] = dual_metadata
+        if is_multi_source and locals().get("dual_metadata"):
+            task_result["multi_source_results"] = dual_metadata
+            task_result["source_statuses"] = _build_source_statuses(
+                multi_sources, multi_source_results
+            )
         task_result["stage_index"], task_result["stage_total"] = (
             _compute_stage_position(
                 task_result["stage_steps"],
