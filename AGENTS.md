@@ -15,6 +15,7 @@ A Windows-first application and CLI for video/audio transcription, multi-source 
 - **API Keys & Credentials:** Manage Groq, OpenAI, and custom LLM provider credentials via local `settings.json` (masked) or environment variables (`GROQ_API_KEY`, `OPENAI_API_KEY`). Restrict credentials, API keys, and sensitive tokens to runtime retrieval from environment variables or ignored configuration files.
 - **PowerShell Syntax:** Windows/PowerShell is the primary host environment. Use native PowerShell separators (`;`, separate lines, or explicit `if` statements).
 - **Encoding & Text Safety:** Execute Python operations handling Cyrillic text with `PYTHONUTF8=1`. Store Cyrillic-containing files with UTF-8 BOM (`utf-8-sig`) and CRLF line endings. Read JSON and Markdown files with UTF-8 BOM awareness. Execute Cyrillic text operations via dedicated Python scripts with `PYTHONUTF8=1`.
+- **Cross-Platform Compatibility:** All code, scripts, tooling, and runtime configurations must maintain multi-platform compatibility across Windows (minimum Windows 10 and 11), macOS, and Linux. Rely on portable abstractions, standard path libraries, configurable tool paths, environment-aware branching, and cross-platform runtime conventions rather than fixed operating system assumptions.
 
 ## Coding patterns & conventions
 
@@ -124,6 +125,7 @@ Engineering planning and code design explicitly respect DRY, KISS, YAGNI, SOLID,
 - Inspect exact staged paths before committing (`git status` and `git diff --staged`) to confirm only authorized project files are staged.
 - Restrict commits to project code, keeping credentials, personal data, and live databases local.
 - Use standard conventional commit types (`fix:`, `feat:`, `chore:`, `docs:`, `refactor:`, `test:`) with the user as the sole contributor.
+- **Standard GitHub Development Lifecycle:** The default route for developing features or fixing issues follows a disciplined branch-based lifecycle: issue or user prompt -> create dedicated new branch -> commit verified changes -> open pull request -> complete peer review -> merge into main -> remove feature branch.
 
 ## Known landmines & diagnostics
 
