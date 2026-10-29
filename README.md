@@ -91,7 +91,7 @@ avt --agent-help
 
 The `avt` command is registered on PATH when you run `start_windows.bat` and accept the PATH prompt (or manually via `pip install -e .` from the project root). If not on PATH, use `python cli.py` instead.
 
-Full flag reference, output schemas, and workflow patterns are in the Codex skill at `D:\Projects\.codex\skills\ai-video-transcriber\SKILL.md`.
+Full flag reference, output schemas, and workflow patterns are in the skill definition at `ai-video-transcriber/SKILL.md`.
 
 ## Quick Start
 
@@ -104,8 +104,9 @@ Full flag reference, output schemas, and workflow patterns are in the Codex skil
 
 ### Recommended Windows Start
 
+From the repository root:
+
 ```powershell
-cd D:\Projects\AI-Video-Transcriber
 .\start_windows.bat
 ```
 
@@ -120,7 +121,6 @@ cd D:\Projects\AI-Video-Transcriber
 ### Manual Start
 
 ```powershell
-cd D:\Projects\AI-Video-Transcriber
 py -3 -m venv .venv
 .\.venv\Scripts\activate
 python -m pip install --upgrade pip
@@ -263,8 +263,8 @@ Credentials can be configured via environment variables, `.env` file, the browse
 - Parakeet on CPU can be much slower and heavier on RAM.
 - First use can take time because dependencies and model files may be downloaded.
 - Local model files and caches may appear in:
-  - `D:\Projects\AI-Video-Transcriber\models`
-  - `C:\Users\DELL E5570\.cache\huggingface`
+  - `models/` (relative to the repository root)
+  - `~/.cache/huggingface` (or `%USERPROFILE%\.cache\huggingface` on Windows)
   - Python package and pip cache directories under the user profile
 
 ## Troubleshooting
@@ -288,7 +288,7 @@ Signed media URLs can expire or redirect. Retry the job, use subtitle-first mode
 Temporary task files are kept under:
 
 ```text
-D:\Projects\AI-Video-Transcriber\temp
+temp/
 ```
 
 Model caches may also consume space outside the repo, especially under the Hugging Face cache.
